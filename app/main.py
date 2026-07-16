@@ -83,26 +83,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             "DHAN_CLIENT_ID / DHAN_ACCESS_TOKEN not set — WebSocket consumer disabled"
         )
 
-    # ── 5. AI / MCP layer ────────────────────────────────────────────────────
+    # ── 5. AI / MCP layer (Groq) ─────────────────────────────────────────────
     anthropic_client = None
-    if settings.ANTHROPIC_API_KEY:
+    if settings.GROQ_API_KEY:
         try:
             from app.external.anthropic.client import AnthropicClient
             from app.features.ai.mcp_server import MCPServer
             from app.core.dependencies import set_anthropic_client, set_mcp_server
 
             anthropic_client = AnthropicClient(
-                api_key=settings.ANTHROPIC_API_KEY,
-                model=settings.ANTHROPIC_MODEL,
+                api_key=settings.GROQ_API_KEY,
+                model=settings.GROQ_MODEL,
             )
             await anthropic_client.initialise()
             set_anthropic_client(anthropic_client)
             set_mcp_server(MCPServer())
-            logger.info("Anthropic client initialised | model=%s", settings.ANTHROPIC_MODEL)
+            logger.info("Groq AI client initialised | model=%s", settings.GROQ_MODEL)
         except Exception as exc:
-            logger.warning("Anthropic client init failed — /ask endpoint unavailable: %s", exc)
+            logger.warning("Groq AI client init failed — /ask endpoint unavailable: %s", exc)
     else:
-        logger.warning("ANTHROPIC_API_KEY not set — AI query endpoint disabled")
+        logger.warning("GROQ_API_KEY not set — AI query endpoint disabled")
 
     # ── Application is running ────────────────────────────────────────────────
     yield

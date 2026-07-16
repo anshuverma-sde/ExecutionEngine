@@ -16,9 +16,9 @@ class Settings(BaseSettings):
     DHAN_CLIENT_ID: str = ""
     DHAN_ACCESS_TOKEN: str = ""
 
-    # AI
-    ANTHROPIC_API_KEY: str = ""
-    ANTHROPIC_MODEL: str = "claude-haiku-4-5-20251001"
+    # AI (Groq — OpenAI-compatible, free tier)
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
 
     # Notification
     WEBHOOK_URL: str = "http://webhook-mock:8001/notify"

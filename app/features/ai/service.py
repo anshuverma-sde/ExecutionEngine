@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class AIService:
-    """Dispatches natural-language questions to Claude via the agentic tool-use loop."""
+    """Dispatches natural-language questions to the LLM via the agentic tool-use loop."""
 
     def __init__(self, anthropic_client: AnthropicClient, mcp_server: MCPServer) -> None:
         self._client = anthropic_client
@@ -23,7 +23,7 @@ class AIService:
         """Run the agentic loop and return a structured response.
 
         The model may invoke MCP tools multiple times before producing a final answer.
-        Tool results (trades, P&L, latency stats) are fed back as tool_result blocks.
+        Tool results (trades, P&L, latency stats) are fed back as tool result messages.
 
         Args:
             request: AskRequest with the user's natural-language question.
@@ -32,7 +32,7 @@ class AIService:
         Returns:
             AskResponse with the final answer, model name, and turn count.
         """
-        logger.info("AI query received: %q", request.question[:120])
+        logger.info("AI query: %.120s", request.question)
 
         tools = self._mcp.get_tools()
 
