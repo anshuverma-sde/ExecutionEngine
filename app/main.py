@@ -43,7 +43,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # ── 2. Postgres engine ────────────────────────────────────────────────────
     try:
         from app.external.postgres.engine import init_engine
-        await init_engine(settings.DATABASE_URL)
+        await init_engine(settings.database_url)
         logger.info("Postgres engine initialised")
     except Exception as exc:
         logger.warning("Postgres init failed — DB features will be unavailable: %s", exc)
