@@ -82,6 +82,34 @@ app/
 - `virtualenv` (`pip install virtualenv`)
 - A free Groq API key — [console.groq.com](https://console.groq.com)
 
+**Install Redis (if not installed):**
+```bash
+# Ubuntu / Debian
+sudo apt install redis-server
+sudo systemctl start redis
+
+# macOS
+brew install redis
+brew services start redis
+
+# Verify
+redis-cli ping   # → PONG
+```
+
+**Install PostgreSQL (if not installed):**
+```bash
+# Ubuntu / Debian
+sudo apt install postgresql
+sudo systemctl start postgresql
+
+# macOS
+brew install postgresql@16
+brew services start postgresql@16
+
+# Verify
+psql --version
+```
+
 ### Step 1 — Clone the repository
 
 ```bash
@@ -92,10 +120,13 @@ cd ExecutionEngine
 ### Step 2 — Create and activate virtual environment
 
 ```bash
+pip install virtualenv
 virtualenv venv
 source venv/bin/activate      # Linux / macOS
 # venv\Scripts\activate       # Windows
 ```
+
+> All subsequent commands assume the venv is active. If you open a new terminal, run `source venv/bin/activate` again.
 
 ### Step 3 — Install dependencies
 
@@ -138,8 +169,14 @@ DHAN_ACCESS_TOKEN=
 # Create the database (run once)
 PGPASSWORD=postgres createdb -U postgres -h localhost engine
 
-# Apply schema migrations
+# Apply all schema migrations
 alembic upgrade head
+
+# Verify migration status
+alembic current
+
+# View full migration history
+alembic history --verbose
 ```
 
 ### Step 6 — Start the FastAPI server
@@ -147,6 +184,8 @@ alembic upgrade head
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
+
+API docs available at: `http://localhost:8000/docs` (Swagger UI)
 
 ### Step 7 — Start Celery worker (separate terminal)
 
@@ -172,27 +211,84 @@ celery -A app.external.celery.app beat --loglevel=info
 curl http://localhost:8000/health
 # {"status": "ok", "environment": "development"}
 
-# Run a replay to generate a trade
-curl -X POST "http://localhost:8000/debug/replay?reset_metrics=true" \
+# Run a replay to generate a trade (reset window so spike fires)
+curl -X POST "http://localhost:8000/debug/replay?reset_window=true&reset_metrics=true" \
   -H "Content-Type: application/x-ndjson" \
   --data-binary @tests/fixtures/sample_replay.ndjson
 
 # Check the trade was persisted
 curl http://localhost:8000/trades
 
+# Get a single trade by UUID
+curl http://localhost:8000/trades/<trade-id-from-above>
+
 # Check latency SLA
 curl http://localhost:8000/metrics/latency
 
-# Ask the AI a question
+# Reset latency samples (before a clean benchmark run)
+curl -X POST http://localhost:8000/metrics/reset
+
+# Check reconciliation status
+curl http://localhost:8000/reconciliation/status
+
+# Ask the AI a question (requires GROQ_API_KEY in .env)
 curl -X POST http://localhost:8000/ask \
   -H "Content-Type: application/json" \
   -d '{"question": "What was the last trade?"}'
+
+curl -X POST http://localhost:8000/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Compare CE vs PE profitability."}'
+
+curl -X POST http://localhost:8000/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Is the p99 latency SLA being met?"}'
 ```
 
 ### Optional: Run the benchmark
 
 ```bash
+# Basic run (uses sample_replay.ndjson, 120 ticks)
 python scripts/benchmark.py
+
+# Reset the price window so the spike fires on every run
+python scripts/benchmark.py --reset-window
+
+# Custom file and server URL
+python scripts/benchmark.py \
+  --file tests/fixtures/sample_replay.ndjson \
+  --url http://localhost:8000
+
+# Generate a larger fixture first (500 ticks, spike at tick 65)
+python scripts/generate_replay.py \
+  --ticks 500 \
+  --out tests/fixtures/large_replay.ndjson
+python scripts/benchmark.py --file tests/fixtures/large_replay.ndjson
+
+# Machine-readable JSON output (exit 0 = SLA met, exit 1 = SLA breached)
+python scripts/benchmark.py --json
+```
+
+### Useful Alembic commands
+
+```bash
+# Apply all pending migrations
+alembic upgrade head
+
+# Rollback one migration
+alembic downgrade -1
+
+# Rollback all migrations
+alembic downgrade base
+
+# Show current revision
+alembic current
+
+# Show history
+alembic history --verbose
+
+# Auto-generate a new migration after model changes
+alembic revision --autogenerate -m "describe your change"
 ```
 
 ---
@@ -566,25 +662,55 @@ Redis was chosen because it is already in the stack (price window + cooldown). *
 
 ## Running the Benchmark
 
+> Activate the venv first: `source venv/bin/activate`
+
 ```bash
-# Local (server must be running)
+# Basic run — resets window so the spike always fires
 python scripts/benchmark.py
 
-# Custom file / URL
+# Keep existing window state (spike won't fire if cooldown is active)
+python scripts/benchmark.py --no-reset-window
+
+# Custom file and server URL
 python scripts/benchmark.py \
   --file tests/fixtures/sample_replay.ndjson \
   --url http://localhost:8000
 
-# Generate a larger fixture
-python scripts/generate_replay.py --ticks 500 --out tests/fixtures/large_replay.ndjson
+# Generate a larger fixture (more ticks = more stable p99)
+python scripts/generate_replay.py \
+  --ticks 500 \
+  --base-price 22000 \
+  --spike-pct 5.5 \
+  --spike-at 65 \
+  --output tests/fixtures/large_replay.ndjson
+
 python scripts/benchmark.py --file tests/fixtures/large_replay.ndjson
 
-# Machine-readable output (exit code 0 = pass, 1 = fail)
+# Machine-readable JSON output (exit 0 = SLA met, exit 1 = SLA breached)
 python scripts/benchmark.py --json
 
-# Docker
+# Docker (production)
 docker compose exec app python scripts/benchmark.py
 ```
+
+**All benchmark flags:**
+| Flag | Default | Description |
+|---|---|---|
+| `--file` | `tests/fixtures/sample_replay.ndjson` | NDJSON replay file |
+| `--url` | `http://localhost:8000` | Server base URL |
+| `--reset-window` | enabled | Clear Redis price window before run (spike fires) |
+| `--no-reset-window` | — | Keep existing window (spike may be suppressed by cooldown) |
+| `--json` | — | Output raw JSON instead of formatted report |
+
+**generate_replay.py flags:**
+| Flag | Default | Description |
+|---|---|---|
+| `--ticks` | 120 | Number of ticks to generate |
+| `--base-price` | 22000 | Starting LTP price |
+| `--spike-pct` | 5.5 | Spike magnitude (%) above base price |
+| `--spike-at` | 65 | Tick index where spike fires (must be > 60) |
+| `--output` | `tests/fixtures/sample_replay.ndjson` | Output file path |
+| `--security-id` | 13 | Security ID in each tick |
 
 **Expected output:**
 ```
