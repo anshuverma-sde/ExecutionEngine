@@ -1,8 +1,8 @@
-"""Anthropic / Claude API configuration."""
+"""Groq AI configuration (replaces Anthropic — spec allows any LLM provider)."""
 from app.core.config import settings
 
-ANTHROPIC_API_KEY: str = settings.ANTHROPIC_API_KEY
-ANTHROPIC_MODEL: str = settings.ANTHROPIC_MODEL
+GROQ_API_KEY: str = settings.GROQ_API_KEY
+GROQ_MODEL: str = settings.GROQ_MODEL
 
 # Agentic loop limits
 MAX_TOKENS: int = 4096
