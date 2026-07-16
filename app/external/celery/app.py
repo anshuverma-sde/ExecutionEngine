@@ -24,6 +24,10 @@ celery_app.conf.update(
     timezone=celery_config.TIMEZONE,
     enable_utc=celery_config.ENABLE_UTC,
     task_track_started=True,
+    # Reliability settings — critical for at-least-once delivery
+    task_acks_late=True,              # Only ACK after task completes (not on pickup)
+    task_reject_on_worker_lost=True,  # Requeue if worker process dies mid-task
+    worker_prefetch_multiplier=1,     # Fair dispatch — one task at a time per worker
     task_routes={
         "app.features.notifications.tasks.*": {"queue": celery_config.QUEUE_NOTIFICATIONS},
         "app.features.notifications.reconciliation.*": {"queue": celery_config.QUEUE_RECONCILIATION},
