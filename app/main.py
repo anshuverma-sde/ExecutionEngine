@@ -83,26 +83,31 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             "DHAN_CLIENT_ID / DHAN_ACCESS_TOKEN not set — WebSocket consumer disabled"
         )
 
-    # ── 5. AI / MCP layer (Groq) ─────────────────────────────────────────────
+    # ── 5. AI / MCP layer ────────────────────────────────────────────────────
     anthropic_client = None
-    if settings.GROQ_API_KEY:
-        try:
-            from app.external.anthropic.client import AnthropicClient
-            from app.features.ai.mcp_server import MCPServer
-            from app.core.dependencies import set_anthropic_client, set_mcp_server
+    try:
+        from app.external.llm.factory import create_llm_provider
+        from app.features.ai.mcp_server import MCPServer
+        from app.core.dependencies import set_anthropic_client, set_mcp_server
 
-            anthropic_client = AnthropicClient(
-                api_key=settings.GROQ_API_KEY,
-                model=settings.GROQ_MODEL,
-            )
-            await anthropic_client.initialise()
-            set_anthropic_client(anthropic_client)
-            set_mcp_server(MCPServer())
-            logger.info("Groq AI client initialised | model=%s", settings.GROQ_MODEL)
-        except Exception as exc:
-            logger.warning("Groq AI client init failed — /ask endpoint unavailable: %s", exc)
-    else:
-        logger.warning("GROQ_API_KEY not set — AI query endpoint disabled")
+        # Resolve provider credentials from config
+        provider = settings.LLM_PROVIDER
+        api_key = {"groq": settings.GROQ_API_KEY, "openai": settings.OPENAI_API_KEY}.get(provider, "")
+        model = {"groq": settings.GROQ_MODEL, "openai": settings.OPENAI_MODEL, "ollama": settings.OLLAMA_MODEL}.get(provider, "")
+
+        llm_provider = create_llm_provider(
+            provider=provider,
+            api_key=api_key,
+            model=model,
+            base_url=settings.OLLAMA_BASE_URL,
+        )
+        await llm_provider.initialise()
+        set_anthropic_client(llm_provider)
+        set_mcp_server(MCPServer())
+        anthropic_client = llm_provider
+        logger.info("LLM provider ready | provider=%s model=%s", provider, llm_provider.model_name)
+    except Exception as exc:
+        logger.warning("LLM provider init failed — /ask endpoint unavailable: %s", exc)
 
     # ── Application is running ────────────────────────────────────────────────
     yield

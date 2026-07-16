@@ -19,15 +19,16 @@ async def ask(
 ) -> AskResponse:
     """Submit a natural-language question about trades, spikes, or system health.
 
-    Claude uses up to 6 MCP tools (list_recent_trades, get_trade_by_id,
-    get_spike_summary, get_pnl_summary, get_latency_stats, get_system_status)
-    to answer grounded in live data.
+    The LLM (configured via LLM_PROVIDER env var: groq/openai/ollama) uses
+    6 MCP tools to answer grounded in live data:
+      get_last_trade, get_open_positions, get_pnl_summary,
+      get_spike_events, get_best_strike_accuracy, generate_trade_chart
 
     Example questions:
-    - "What were the last 5 trades?"
-    - "Is the p99 latency SLA being met?"
-    - "What's the total P&L for NIFTY today?"
-    - "Are there any notification delivery failures?"
+    - "What was the last trade?"
+    - "Show today's losing trades."
+    - "Which strike performed best?"
+    - "Compare CE vs PE profitability."
     """
     from app.core.dependencies import get_anthropic_client, get_mcp_server
     from app.features.ai.service import AIService
