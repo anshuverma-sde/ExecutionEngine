@@ -9,12 +9,13 @@ A low-latency NIFTY 50 options execution engine that ingests a live market feed,
 ## Table of Contents
 
 1. [System Architecture](#system-architecture)
-2. [Quick Start](#quick-start)
-3. [Configuration](#configuration)
-4. [API Reference](#api-reference)
-5. [Design Decisions](#design-decisions)
-6. [Failure Semantics](#failure-semantics)
-7. [Running the Benchmark](#running-the-benchmark)
+2. [Local Development Setup](#local-development-setup)
+3. [Production Setup](#production-setup)
+4. [Configuration Reference](#configuration-reference)
+5. [API Reference](#api-reference)
+6. [Design Decisions](#design-decisions)
+7. [Failure Semantics](#failure-semantics)
+8. [Running the Benchmark](#running-the-benchmark)
 
 ---
 
@@ -71,86 +72,333 @@ app/
 
 ---
 
-## Quick Start
+## Local Development Setup
 
 ### Prerequisites
 
-- Docker & Docker Compose
-- Python 3.11+ (for local development)
+- Python 3.10+
+- PostgreSQL 14+ running locally
+- Redis 7+ running locally
+- `virtualenv` (`pip install virtualenv`)
+- A free Groq API key — [console.groq.com](https://console.groq.com)
 
-### 1. Clone and configure
+### Step 1 — Clone the repository
 
 ```bash
 git clone https://github.com/anshuverma-sde/ExecutionEngine.git
 cd ExecutionEngine
-cp .env.example .env
-# Edit .env — add GROQ_API_KEY (free at https://console.groq.com)
-# Optionally add DHAN_CLIENT_ID + DHAN_ACCESS_TOKEN for live feed
 ```
 
-### 2. Start all services
+### Step 2 — Create and activate virtual environment
 
 ```bash
-docker compose up --build
+virtualenv venv
+source venv/bin/activate      # Linux / macOS
+# venv\Scripts\activate       # Windows
 ```
 
-This starts: Postgres, Redis, FastAPI app, Celery worker (4 processes), Celery Beat, webhook mock.
+### Step 3 — Install dependencies
 
-### 3. Run the database migration
+```bash
+pip install -r requirements.txt
+```
+
+### Step 4 — Configure environment
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and set at minimum:
+
+```env
+# Database (uses your local Postgres)
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=postgres
+DB_PASSWORD=postgres
+DB_NAME=engine
+
+# Redis (local)
+REDIS_URL=redis://localhost:6379/0
+CELERY_BROKER_URL=redis://localhost:6379/1
+CELERY_RESULT_BACKEND=redis://localhost:6379/2
+
+# AI — get a free key at https://console.groq.com
+GROQ_API_KEY=gsk_...
+
+# Optional: DhanHQ live feed (leave empty to use replay-only mode)
+DHAN_CLIENT_ID=
+DHAN_ACCESS_TOKEN=
+```
+
+### Step 5 — Create the database and run migrations
+
+```bash
+# Create the database (run once)
+PGPASSWORD=postgres createdb -U postgres -h localhost engine
+
+# Apply schema migrations
+alembic upgrade head
+```
+
+### Step 6 — Start the FastAPI server
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### Step 7 — Start Celery worker (separate terminal)
+
+```bash
+source venv/bin/activate
+celery -A app.external.celery.app worker \
+  --loglevel=info \
+  --concurrency=4 \
+  --queues=notifications,reconciliation,default
+```
+
+### Step 8 — Start Celery Beat scheduler (separate terminal)
+
+```bash
+source venv/bin/activate
+celery -A app.external.celery.app beat --loglevel=info
+```
+
+### Step 9 — Verify everything is running
+
+```bash
+# Health check
+curl http://localhost:8000/health
+# {"status": "ok", "environment": "development"}
+
+# Run a replay to generate a trade
+curl -X POST "http://localhost:8000/debug/replay?reset_metrics=true" \
+  -H "Content-Type: application/x-ndjson" \
+  --data-binary @tests/fixtures/sample_replay.ndjson
+
+# Check the trade was persisted
+curl http://localhost:8000/trades
+
+# Check latency SLA
+curl http://localhost:8000/metrics/latency
+
+# Ask the AI a question
+curl -X POST http://localhost:8000/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What was the last trade?"}'
+```
+
+### Optional: Run the benchmark
+
+```bash
+python scripts/benchmark.py
+```
+
+---
+
+## Production Setup
+
+### Prerequisites
+
+- Docker 24+ and Docker Compose v2
+- A server with at least 2 CPU cores and 4 GB RAM
+- Domain name (optional, for HTTPS)
+- Groq/OpenAI API key
+- DhanHQ credentials for live feed
+
+### Step 1 — Clone the repository
+
+```bash
+git clone https://github.com/anshuverma-sde/ExecutionEngine.git
+cd ExecutionEngine
+```
+
+### Step 2 — Configure environment
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` for production:
+
+```env
+# Database — use a managed Postgres service or Docker volume
+DB_HOST=postgres        # Docker service name (or your managed DB host)
+DB_PORT=5432
+DB_USER=engine_user
+DB_PASSWORD=<strong-password>
+DB_NAME=engine
+
+# OR set the full URL directly (takes precedence over DB_* vars)
+# DATABASE_URL=postgresql+asyncpg://engine_user:<password>@your-db-host:5432/engine
+
+# Redis — Docker service name or managed Redis
+REDIS_URL=redis://redis:6379/0
+CELERY_BROKER_URL=redis://redis:6379/1
+CELERY_RESULT_BACKEND=redis://redis:6379/2
+
+# DhanHQ live feed credentials
+DHAN_CLIENT_ID=your_client_id
+DHAN_ACCESS_TOKEN=your_access_token
+
+# AI provider
+LLM_PROVIDER=groq
+GROQ_API_KEY=gsk_...
+GROQ_MODEL=llama-3.3-70b-versatile
+
+# Notification webhook (your WhatsApp/Twilio endpoint)
+WEBHOOK_URL=https://your-webhook-endpoint.com/notify
+WEBHOOK_TIMEOUT_SECONDS=10
+
+# App
+LOG_LEVEL=INFO
+ENVIRONMENT=production
+```
+
+### Step 3 — Build and start all services
+
+```bash
+docker compose up --build -d
+```
+
+This starts:
+| Service | Description |
+|---|---|
+| `postgres` | PostgreSQL 16 database with persistent volume |
+| `redis` | Redis 7 for price window, cooldown, and Celery |
+| `app` | FastAPI server on port 8000 |
+| `celery-worker` | 4-process Celery worker (notifications + reconciliation) |
+| `celery-beat` | Celery Beat scheduler (reconciliation every 60s) |
+| `webhook-mock` | Mock webhook receiver on port 8001 (remove in prod) |
+
+### Step 4 — Run database migrations
 
 ```bash
 docker compose exec app alembic upgrade head
 ```
 
-### 4. Verify health
+### Step 5 — Verify all containers are healthy
+
+```bash
+docker compose ps
+```
+
+All services should show `healthy` or `running`. Then:
 
 ```bash
 curl http://localhost:8000/health
-# {"status": "ok", "environment": "development"}
+# {"status": "ok", "environment": "production"}
 ```
 
-### 5. Test with replay
+### Step 6 — (Optional) Set up a reverse proxy with HTTPS
 
-```bash
-curl -X POST "http://localhost:8000/debug/replay?reset_metrics=true" \
-  -H "Content-Type: application/x-ndjson" \
-  --data-binary @tests/fixtures/sample_replay.ndjson
+Use Nginx or Caddy in front of port 8000. Example Nginx config:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name your-domain.com;
+
+    ssl_certificate     /etc/ssl/certs/your-cert.pem;
+    ssl_certificate_key /etc/ssl/private/your-key.pem;
+
+    location / {
+        proxy_pass         http://127.0.0.1:8000;
+        proxy_set_header   Host $host;
+        proxy_set_header   X-Real-IP $remote_addr;
+        proxy_read_timeout 60s;
+    }
+}
 ```
 
-### 6. Check latency SLA
+### Step 7 — Monitor logs
 
 ```bash
-curl http://localhost:8000/metrics/latency
-# {"p50_ms": 0.4, "p95_ms": 1.2, "p99_ms": 2.1, "sla_met": true, ...}
+# All services
+docker compose logs -f
+
+# Specific service
+docker compose logs -f app
+docker compose logs -f celery-worker
+docker compose logs -f celery-beat
+```
+
+### Step 8 — Scaling workers (if needed)
+
+```bash
+# Run 2 Celery worker containers
+docker compose up --scale celery-worker=2 -d
+```
+
+### Updating to a new version
+
+```bash
+git pull origin main
+docker compose build
+docker compose up -d
+docker compose exec app alembic upgrade head   # run if there are new migrations
+```
+
+### Stopping all services
+
+```bash
+docker compose down           # stop containers, keep volumes
+docker compose down -v        # stop and DELETE all data (destructive)
 ```
 
 ---
 
-## Configuration
+## Configuration Reference
 
-All configuration is via environment variables (`.env` file). See `.env.example` for the full reference.
+All configuration is via environment variables. Two styles are supported:
+
+**Option A — Individual DB vars (recommended for local dev):**
+```env
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=postgres
+DB_PASSWORD=postgres
+DB_NAME=engine
+```
+
+**Option B — Full connection URL (overrides Option A, recommended for production/cloud):**
+```env
+DATABASE_URL=postgresql+asyncpg://user:password@host:5432/dbname
+```
+
+### Full variable reference
 
 | Variable | Default | Description |
 |---|---|---|
-| `DATABASE_URL` | `postgresql+asyncpg://...` | Async Postgres connection string |
-| `REDIS_URL` | `redis://redis:6379/0` | Redis for price window + cooldown |
-| `CELERY_BROKER_URL` | `redis://redis:6379/1` | Celery broker (Redis DB 1) |
-| `CELERY_RESULT_BACKEND` | `redis://redis:6379/2` | Celery result backend (Redis DB 2) |
-| `DHAN_CLIENT_ID` | _(empty)_ | DhanHQ client ID — omit to disable live feed |
+| `DB_HOST` | `localhost` | Postgres host |
+| `DB_PORT` | `5432` | Postgres port |
+| `DB_USER` | `postgres` | Postgres user |
+| `DB_PASSWORD` | `postgres` | Postgres password |
+| `DB_NAME` | `engine` | Postgres database name |
+| `DATABASE_URL` | _(empty)_ | Full async URL — overrides DB_* vars when set |
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis (price window + cooldown) |
+| `CELERY_BROKER_URL` | `redis://localhost:6379/1` | Celery task broker |
+| `CELERY_RESULT_BACKEND` | `redis://localhost:6379/2` | Celery result store |
+| `DHAN_CLIENT_ID` | _(empty)_ | DhanHQ client ID (omit to disable live feed) |
 | `DHAN_ACCESS_TOKEN` | _(empty)_ | DhanHQ access token |
 | `LLM_PROVIDER` | `groq` | AI provider: `groq` \| `openai` \| `ollama` |
-| `GROQ_API_KEY` | _(empty)_ | Groq API key (free tier) |
-| `GROQ_MODEL` | `llama-3.3-70b-versatile` | Groq model ID |
-| `OPENAI_API_KEY` | _(empty)_ | OpenAI API key (if `LLM_PROVIDER=openai`) |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server (if `LLM_PROVIDER=ollama`) |
-| `WEBHOOK_URL` | `http://webhook-mock:8001/notify` | Notification delivery endpoint |
-| `LOG_LEVEL` | `INFO` | Python logging level |
+| `GROQ_API_KEY` | _(empty)_ | Groq API key — [console.groq.com](https://console.groq.com) |
+| `GROQ_MODEL` | `llama-3.3-70b-versatile` | Groq model |
+| `OPENAI_API_KEY` | _(empty)_ | OpenAI API key (when `LLM_PROVIDER=openai`) |
+| `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL (when `LLM_PROVIDER=ollama`) |
+| `OLLAMA_MODEL` | `llama3.2` | Ollama model |
+| `WEBHOOK_URL` | `http://localhost:8001/notify` | Notification delivery endpoint |
+| `WEBHOOK_TIMEOUT_SECONDS` | `10` | HTTP timeout for outbound notifications |
+| `LOG_LEVEL` | `INFO` | Logging level: DEBUG \| INFO \| WARNING \| ERROR |
+| `ENVIRONMENT` | `development` | Environment label |
 
-**Switching AI providers** — no code changes needed:
+**Switching AI providers — no code changes needed:**
 ```bash
-LLM_PROVIDER=openai   OPENAI_API_KEY=sk-...       # GPT-4o-mini
-LLM_PROVIDER=groq     GROQ_API_KEY=gsk_...        # Llama 3.3 70B (free)
-LLM_PROVIDER=ollama   OLLAMA_BASE_URL=http://...  # Local Llama 3.2
+LLM_PROVIDER=groq    GROQ_API_KEY=gsk_...         # Free, recommended
+LLM_PROVIDER=openai  OPENAI_API_KEY=sk-...         # GPT-4o-mini
+LLM_PROVIDER=ollama  OLLAMA_BASE_URL=http://...    # Local, zero cost
 ```
 
 ---
@@ -160,8 +408,6 @@ LLM_PROVIDER=ollama   OLLAMA_BASE_URL=http://...  # Local Llama 3.2
 ### Health
 
 #### `GET /health`
-Returns application health status.
-
 ```json
 {"status": "ok", "environment": "development"}
 ```
@@ -205,10 +451,10 @@ Single trade by UUID. Returns 404 if not found.
 ### Replay
 
 #### `POST /debug/replay`
-Replay a newline-delimited JSON tick file through the exact same pipeline as the live WebSocket. Used for testing and benchmarking.
+Replay a newline-delimited JSON tick file through the exact same pipeline as the live WebSocket.
 
 **Query params:**
-- `reset_window` (bool, default false) — clear the Redis price window before replay
+- `reset_window` (bool, default false) — clear Redis price window before replay
 - `reset_metrics` (bool, default false) — clear latency samples before replay
 
 **Request body:** `Content-Type: application/x-ndjson`
@@ -219,12 +465,7 @@ Replay a newline-delimited JSON tick file through the exact same pipeline as the
 
 **Response:**
 ```json
-{
-  "processed": 120,
-  "signals": 1,
-  "errors": 0,
-  "latency_stats": {"p50_ms": 0.4, "p99_ms": 2.1, "sla_met": true}
-}
+{"processed": 120, "signals": 1, "errors": 0, "latency_stats": {"p99_ms": 2.1, "sla_met": true}}
 ```
 
 ---
@@ -232,18 +473,13 @@ Replay a newline-delimited JSON tick file through the exact same pipeline as the
 ### Metrics
 
 #### `GET /metrics/latency`
-Tick-to-signal latency percentiles. Measurement scope: `ingest_tick()` entry → spike detector return (excludes DB write and Celery enqueue).
+Tick-to-signal latency percentiles (excludes DB write and Celery enqueue).
 
 ```json
 {
-  "p50_ms": 0.412,
-  "p95_ms": 0.891,
-  "p99_ms": 2.134,
-  "max_ms": 4.201,
-  "count": 120,
-  "sla_met": true,
-  "sla_target_ms": 50.0,
-  "measured_at": "2026-07-10T09:35:00Z"
+  "p50_ms": 0.412, "p95_ms": 0.891, "p99_ms": 2.134,
+  "max_ms": 4.201, "count": 120, "sla_met": true,
+  "sla_target_ms": 50.0, "measured_at": "2026-07-10T09:35:00Z"
 }
 ```
 
@@ -251,14 +487,8 @@ Tick-to-signal latency percentiles. Measurement scope: `ingest_tick()` entry →
 Clear all latency samples.
 
 #### `GET /reconciliation/status`
-Count of trades pending reconciliation and permanently failed notifications.
-
 ```json
-{
-  "pending_reconciliation": 0,
-  "permanently_failed": 0,
-  "measured_at": "2026-07-10T09:35:00Z"
-}
+{"pending_reconciliation": 0, "permanently_failed": 0, "measured_at": "..."}
 ```
 
 ---
@@ -266,7 +496,6 @@ Count of trades pending reconciliation and permanently failed notifications.
 ### AI Query
 
 #### `POST /ask`
-Submit a natural-language question. Claude (or the configured LLM) uses 6 MCP tools to answer grounded in live data.
 
 **Request:**
 ```json
@@ -276,27 +505,22 @@ Submit a natural-language question. Claude (or the configured LLM) uses 6 MCP to
 **Response:**
 ```json
 {
-  "answer": "The best performing strike was NIFTY 22450 CE with total P&L of ₹847.20 across 9 trades (avg ₹94.13/trade).",
+  "answer": "The best performing strike was NIFTY 22450 CE with total P&L of ₹847.20 across 9 trades.",
   "model": "llama-3.3-70b-versatile",
   "turns": 2
 }
 ```
 
-**Example questions:**
-- "What was the last trade?"
-- "Show today's losing trades."
-- "Which strike performed best?"
-- "Compare CE vs PE profitability."
-- "Is the p99 latency SLA being met?"
+**Example questions:** "What was the last trade?" · "Show today's losing trades." · "Which strike performed best?" · "Compare CE vs PE profitability."
 
-**MCP Tools available to the model:**
+**MCP Tools:**
 | Tool | Description |
 |---|---|
 | `get_last_trade` | Most recent trade record |
 | `get_open_positions` | Recent simulated open positions |
-| `get_pnl_summary` | Total / avg / max / min P&L across all trades |
-| `get_spike_events` | Recent spike-triggered events with signal details |
-| `get_best_strike_accuracy` | Strike with highest total simulated P&L |
+| `get_pnl_summary` | Total / avg / max / min P&L |
+| `get_spike_events` | Recent spike-triggered events |
+| `get_best_strike_accuracy` | Strike with highest total P&L |
 | `generate_trade_chart` | Text chart of last 20 trades with win rate |
 
 ---
@@ -305,68 +529,61 @@ Submit a natural-language question. Claude (or the configured LLM) uses 6 MCP to
 
 ### Redis Sorted Sets for the Rolling Window
 
-Chosen over Streams and Lists because:
 - **O(log N) append** via `ZADD` with ms timestamp as score
 - **O(log N) range delete** via `ZREMRANGEBYSCORE` to evict ticks older than 60s
-- **O(1) oldest-entry lookup** via `ZRANGEBYSCORE(cutoff, +inf, limit=1)` — constant time regardless of window size
+- **O(1) oldest-entry lookup** via `ZRANGEBYSCORE(cutoff, +inf, limit=1)`
 - Atomic pipeline: `ZADD + ZREMRANGEBYSCORE + EXPIRE` in a single round-trip
 
 ### ATM Strike Rounding (22425 → 22450)
 
-The spec leaves the boundary case ambiguous. Decision: **round-half-up** using `floor(spot/50 + 0.5) * 50`.
+Decision: **round-half-up** using `floor(spot/50 + 0.5) * 50`. Python's `round()` uses banker's rounding (22425 → 22400) which produces surprising results in single-trade scenarios. Financial conventions universally use round-half-up.
 
-Rationale: Python's `round()` uses banker's rounding (22425 → 22400) which is statistically unbiased for large datasets but produces surprising results in single-trade scenarios. Financial conventions universally use round-half-up. The decision is documented and consistent — the spec rewards having a defensible position.
+### Celery Broker: Redis
 
-### Celery Broker: Redis (not RabbitMQ)
-
-Redis was chosen because:
-- Already in the stack (price window + cooldown)
-- Zero additional infrastructure
-- Sufficient durability for this use case with `task_acks_late=True`
-
-**Durability tradeoff accepted:** Redis uses AOF persistence by default off in this config (`--appendonly no` in docker-compose). In production, enable AOF or use RabbitMQ with durable queues if zero message loss is required. For this system, the Celery Beat reconciliation task (every 60s) recovers any dropped notifications — acceptable for trading alerts.
+Redis was chosen because it is already in the stack (price window + cooldown). **Durability tradeoff:** AOF persistence is off in the default config. The Celery Beat reconciliation task (every 60s) recovers any dropped notifications, making this acceptable for trading alerts.
 
 ### Provider-Agnostic LLM Layer
 
-The AI layer uses a `BaseLLMProvider` abstract class with three concrete implementations: Groq, OpenAI, and Ollama. Provider selection is a single env var (`LLM_PROVIDER`). Adding a new provider requires only implementing the interface in a new file — no changes to service, router, or MCP layer.
+`BaseLLMProvider` abstract class with three implementations: Groq, OpenAI, Ollama. Switch with one env var (`LLM_PROVIDER`). Adding a new provider requires only a new file — zero changes to service or router.
 
 ---
 
 ## Failure Semantics
 
-### Q1: Postgres commits, then Celery broker is unreachable
+### Q1: Postgres commits, Celery broker is unreachable
 
-`_enqueue_notification()` in `trading/service.py` wraps the Celery enqueue in a `try/except`. The exception is caught and logged — the DB commit is not rolled back. The Celery Beat reconciliation task runs every 60 seconds and re-enqueues any trade with `notification_sent=False AND notification_failed=False AND created_at < NOW()-2min`. The user receives their notification within ~60 seconds of broker recovery.
+`_enqueue_notification()` catches the broker error — DB commit is preserved. Beat reconciliation re-enqueues within 60 seconds of broker recovery.
 
-### Q2: Worker sends the webhook, then crashes before ACKing the task
+### Q2: Worker sends webhook, crashes before ACKing
 
-`task_acks_late=True` + `task_reject_on_worker_lost=True` causes RabbitMQ/Redis to requeue the task. On redelivery, `send_trade_notification` attempts Redis `SETNX` on key `notif_sent:{trade_id}`. The key was set **before** the HTTP call, so it still exists — `SETNX` returns False and the task exits immediately with `{"status": "skipped", "reason": "duplicate"}`. The user sees exactly one message.
+`task_acks_late=True` + `task_reject_on_worker_lost=True` requeues the task. On redelivery, Redis `SETNX` finds the idempotency key (set before the HTTP call) → returns False → task exits with `skipped`. User sees exactly one message.
 
 ### Q3: 4-worker pool, 200 spikes in 10 seconds
 
-The ingestion pipeline (`ingest_tick()`) is fully async and never blocks on Celery. Signal handling (DB write + Celery enqueue) is dispatched via `asyncio.create_task()` — it runs concurrently without blocking tick processing. The 60-second per-security cooldown (Redis SETNX) means at most one signal per security per minute regardless of spike frequency, naturally throttling the notification queue.
+`ingest_tick()` is fully async and dispatches signal handling via `asyncio.create_task()` — tick processing is never blocked. The 60-second per-security cooldown (Redis SETNX) limits signals to one per security per minute, naturally throttling the queue.
 
 ---
 
 ## Running the Benchmark
 
 ```bash
-# Ensure the server is running
-docker compose up -d
-
-# Run migrations
-docker compose exec app alembic upgrade head
-
-# Run the benchmark (uses sample_replay.ndjson — 120 ticks, 1 spike)
+# Local (server must be running)
 python scripts/benchmark.py
 
-# Generate a larger fixture for more meaningful statistics
+# Custom file / URL
+python scripts/benchmark.py \
+  --file tests/fixtures/sample_replay.ndjson \
+  --url http://localhost:8000
+
+# Generate a larger fixture
 python scripts/generate_replay.py --ticks 500 --out tests/fixtures/large_replay.ndjson
 python scripts/benchmark.py --file tests/fixtures/large_replay.ndjson
 
-# Machine-readable output (for CI)
+# Machine-readable output (exit code 0 = pass, 1 = fail)
 python scripts/benchmark.py --json
-# Exit code 0 = SLA met, 1 = SLA breached
+
+# Docker
+docker compose exec app python scripts/benchmark.py
 ```
 
 **Expected output:**
@@ -389,8 +606,3 @@ python scripts/benchmark.py --json
   SLA (p99 < 50ms) : ✓ PASS
 =======================================================
 ```
-
-The p99 target of 50ms is easily met because:
-- Redis pipeline (ZADD + ZREMRANGEBYSCORE + EXPIRE) completes in < 1ms on localhost
-- Spike detection is pure Python arithmetic — no I/O
-- Signal dispatch is non-blocking (`asyncio.create_task`) — DB write does not pollute the measurement
