@@ -2,12 +2,17 @@ from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.external.postgres.engine import AsyncSessionLocal
+import app.external.postgres.engine as _pg_engine
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """Yield an async database session with automatic commit/rollback."""
-    async with AsyncSessionLocal() as session:
+    """Yield an async database session with automatic commit/rollback.
+
+    Always reads AsyncSessionLocal from the engine module at call time so
+    that the session factory bound to the engine (set during lifespan startup)
+    is used — not the unbound placeholder imported at module load time.
+    """
+    async with _pg_engine.AsyncSessionLocal() as session:
         try:
             yield session
             await session.commit()

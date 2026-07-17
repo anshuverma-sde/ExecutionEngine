@@ -112,22 +112,28 @@ class DhanFeedConsumer:
             await asyncio.sleep(RECONNECT_MAX_S)
             return
 
-        instruments = [(marketfeed.NSE, SECURITY_ID, marketfeed.LTP)]
+        # dhanhq v2: subscription type is Ticker
+        sub_type = getattr(marketfeed, "Ticker", getattr(marketfeed, "LTP", 15))
+        instruments = [(marketfeed.NSE, SECURITY_ID, sub_type)]
 
         feed = marketfeed.DhanFeed(
             client_id=self.client_id,
             access_token=self.access_token,
             instruments=instruments,
             version="v2",
-            on_ticks=self._handle_tick,
         )
+
+        await feed.connect()
 
         self.state = "connected"
         self._reconnect_delay = RECONNECT_BASE_S
         logger.info("DhanHQ feed connected — subscribed to NIFTY 50 LTP (security_id=%s)", SECURITY_ID)
 
-        # DhanFeed.connect() blocks until the connection closes
-        await feed.connect()
+        # dhanhq v2 uses a polling model — call get_instrument_data() in a loop
+        while True:
+            tick_data = await feed.get_instrument_data()
+            if tick_data:
+                self._handle_tick(tick_data)
 
     def _handle_tick(self, tick_data: dict) -> None:
         """Callback invoked by DhanHQ library on each incoming message.
