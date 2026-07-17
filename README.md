@@ -43,35 +43,35 @@ flowchart TD
         REPLAY["POST /debug/replay\nNDJSON tick file"]
     end
 
-    subgraph Ingestion["Ingestion Pipeline (ingest_tick)"]
+    subgraph Ingestion["Ingestion Pipeline"]
         WINDOW["PriceWindow\nRedis Sorted Set\n60s rolling window"]
-        DETECTOR["SpikeDetector\n±5% over 60s\nLONG / SHORT"]
+        DETECTOR["SpikeDetector\n+-5pct over 60s\nLONG or SHORT"]
         COOLDOWN["CooldownManager\nRedis SETNX\n60s per-security"]
         LATENCY["LatencyCollector\np50 / p95 / p99"]
     end
 
     subgraph Execution["Order Simulation"]
-        ATM["ATM Strike\nfloor(spot/50 + 0.5) × 50"]
-        PREMIUM["Premium Simulation\nintrinsic + 0.2% time value"]
+        ATM["ATM Strike\nnearest 50 increment"]
+        PREMIUM["Premium Simulation\nintrinsic + time value"]
         DB[("PostgreSQL\ntrades table")]
     end
 
-    subgraph Async["Async Work (Celery)"]
+    subgraph Async["Async Work - Celery"]
         QUEUE["Redis Broker\nnotifications queue"]
         WORKER["Celery Worker\nexponential backoff\nidempotency via SETNX"]
-        BEAT["Celery Beat\nreconciliation every 60s"]
+        BEAT["Celery Beat\nreconcile every 60s"]
         WEBHOOK["Webhook / WhatsApp\nHTTP POST"]
     end
 
     subgraph AI["AI Query Layer"]
         ASK["POST /ask\nnatural language"]
-        MCP["MCP Tools\nget_last_trade · get_open_positions\nget_pnl_summary · get_spike_events\nget_best_strike_accuracy · generate_trade_chart"]
+        MCP["MCP Tools\nget_last_trade\nget_open_positions\nget_pnl_summary\nget_spike_events\nget_best_strike_accuracy\ngenerate_trade_chart"]
         LLM["LLM Provider\nGroq / OpenAI / Ollama"]
     end
 
-    WS -->|tick| Ingestion
-    REPLAY -->|tick| Ingestion
-    WINDOW -->|P(t-60)| DETECTOR
+    WS -->|tick| WINDOW
+    REPLAY -->|tick| WINDOW
+    WINDOW -->|"60s baseline price"| DETECTOR
     DETECTOR --> COOLDOWN
     COOLDOWN -->|signal| ATM
     DETECTOR --> LATENCY
@@ -80,7 +80,7 @@ flowchart TD
     DB -->|trade_id| QUEUE
     QUEUE --> WORKER
     WORKER --> WEBHOOK
-    BEAT -->|re-enqueue unnotified| QUEUE
+    BEAT -->|"re-enqueue unnotified"| QUEUE
     DB -.->|reads| MCP
     WINDOW -.->|reads| MCP
     ASK --> LLM
