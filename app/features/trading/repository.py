@@ -1,7 +1,7 @@
 """Database query layer for the trading feature (thin async repository)."""
 import logging
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -56,7 +56,7 @@ class TradeRepository:
             .where(Trade.id == trade_id)
             .values(
                 notification_sent=True,
-                notification_sent_at=datetime.utcnow(),
+                notification_sent_at=datetime.now(timezone.utc),
             )
         )
 
@@ -75,7 +75,7 @@ class TradeRepository:
         (they may still have in-flight Celery tasks).
         Excludes permanently failed notifications.
         """
-        cutoff = datetime.utcnow() - timedelta(minutes=RECONCILIATION_GRACE_MINUTES)
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=RECONCILIATION_GRACE_MINUTES)
         result = await self._session.execute(
             select(Trade)
             .where(Trade.notification_sent.is_(False))
