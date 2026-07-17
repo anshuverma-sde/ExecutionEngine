@@ -12,10 +12,11 @@ A low-latency NIFTY 50 options execution engine that ingests a live market feed,
 2. [Local Development Setup](#local-development-setup)
 3. [Production Setup](#production-setup)
 4. [Configuration Reference](#configuration-reference)
-5. [API Reference](#api-reference)
-6. [Design Decisions](#design-decisions)
-7. [Failure Semantics](#failure-semantics)
-8. [Running the Benchmark](#running-the-benchmark)
+5. [Testing Notifications](#testing-notifications)
+6. [API Reference](#api-reference)
+7. [Design Decisions](#design-decisions)
+8. [Failure Semantics](#failure-semantics)
+9. [Running the Benchmark](#running-the-benchmark)
 
 ---
 
@@ -31,6 +32,59 @@ Market Feed ──► [Ingestion] ──► [Spike Detector] ──► [Executio
                                                  [Notification]  [Beat]
                                                               ▲
                                                [AI / MCP Layer] ◄── reads Postgres + Redis
+```
+
+### Architecture Flow (Mermaid)
+
+```mermaid
+flowchart TD
+    subgraph Feed["Market Feed"]
+        WS["DhanHQ WebSocket\nNIFTY 50 · Security ID 13"]
+        REPLAY["POST /debug/replay\nNDJSON tick file"]
+    end
+
+    subgraph Ingestion["Ingestion Pipeline (ingest_tick)"]
+        WINDOW["PriceWindow\nRedis Sorted Set\n60s rolling window"]
+        DETECTOR["SpikeDetector\n±5% over 60s\nLONG / SHORT"]
+        COOLDOWN["CooldownManager\nRedis SETNX\n60s per-security"]
+        LATENCY["LatencyCollector\np50 / p95 / p99"]
+    end
+
+    subgraph Execution["Order Simulation"]
+        ATM["ATM Strike\nfloor(spot/50 + 0.5) × 50"]
+        PREMIUM["Premium Simulation\nintrinsic + 0.2% time value"]
+        DB[("PostgreSQL\ntrades table")]
+    end
+
+    subgraph Async["Async Work (Celery)"]
+        QUEUE["Redis Broker\nnotifications queue"]
+        WORKER["Celery Worker\nexponential backoff\nidempotency via SETNX"]
+        BEAT["Celery Beat\nreconciliation every 60s"]
+        WEBHOOK["Webhook / WhatsApp\nHTTP POST"]
+    end
+
+    subgraph AI["AI Query Layer"]
+        ASK["POST /ask\nnatural language"]
+        MCP["MCP Tools\nget_last_trade · get_open_positions\nget_pnl_summary · get_spike_events\nget_best_strike_accuracy · generate_trade_chart"]
+        LLM["LLM Provider\nGroq / OpenAI / Ollama"]
+    end
+
+    WS -->|tick| Ingestion
+    REPLAY -->|tick| Ingestion
+    WINDOW -->|P(t-60)| DETECTOR
+    DETECTOR --> COOLDOWN
+    COOLDOWN -->|signal| ATM
+    DETECTOR --> LATENCY
+    ATM --> PREMIUM
+    PREMIUM --> DB
+    DB -->|trade_id| QUEUE
+    QUEUE --> WORKER
+    WORKER --> WEBHOOK
+    BEAT -->|re-enqueue unnotified| QUEUE
+    DB -.->|reads| MCP
+    WINDOW -.->|reads| MCP
+    ASK --> LLM
+    LLM --> MCP
 ```
 
 ### Component Breakdown
@@ -495,6 +549,72 @@ DATABASE_URL=postgresql+asyncpg://user:password@host:5432/dbname
 LLM_PROVIDER=groq    GROQ_API_KEY=gsk_...         # Free, recommended
 LLM_PROVIDER=openai  OPENAI_API_KEY=sk-...         # GPT-4o-mini
 LLM_PROVIDER=ollama  OLLAMA_BASE_URL=http://...    # Local, zero cost
+```
+
+---
+
+## Testing Notifications
+
+Notifications are delivered as HTTP POST requests to `WEBHOOK_URL` with this payload:
+
+```json
+{"message": "Trade Alert! Long NIFTY 22450 CE entered at 14:05. Reason: +5.23% spike in 60s."}
+```
+
+### Option A — webhook.site (easiest, no setup)
+
+1. Open [https://webhook.site](https://webhook.site) in your browser — copy the unique URL shown
+2. Set it in your `.env`:
+   ```
+   WEBHOOK_URL=https://webhook.site/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+   ```
+3. Restart the app, trigger a replay — notifications appear live in the browser
+
+### Option B — local mock server (one-liner)
+
+Run this in a separate terminal before starting the app:
+
+```bash
+python3 -c "
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import json, datetime
+
+class H(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers['Content-Length']))
+        print(f'[{datetime.datetime.now().strftime(\"%H:%M:%S\")}] NOTIFICATION:', json.loads(body)['message'])
+        self.send_response(200); self.end_headers()
+    def log_message(self, *a): pass
+
+print('Listening on http://localhost:8001/notify ...')
+HTTPServer(('', 8001), H).serve_forever()
+"
+```
+
+Keep `WEBHOOK_URL=http://localhost:8001/notify` in `.env` (the default). Every trade notification prints instantly to this terminal.
+
+### Option C — check notification status via API
+
+```bash
+# See how many trades are pending notification
+curl http://localhost:8000/reconciliation/status
+
+# notification_sent field per trade
+curl http://localhost:8000/trades
+```
+
+### Triggering a notification end-to-end
+
+```bash
+# 1. Start the mock server (Option B above)
+
+# 2. Run the replay with window reset so a spike fires
+curl -X POST "http://localhost:8000/debug/replay?reset_window=true" \
+  -H "Content-Type: application/x-ndjson" \
+  --data-binary @tests/fixtures/sample_replay.ndjson
+
+# 3. Watch the mock server terminal — notification arrives within seconds
+# [14:05:32] NOTIFICATION: Trade Alert! Long NIFTY 22450 CE entered at 14:05. Reason: +5.23% spike in 60s.
 ```
 
 ---
