@@ -14,14 +14,13 @@ This task intentionally does NOT mark anything failed — that is done only
 after max_retries are exhausted (notification_dead_letter).
 """
 import logging
-import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session
+from sqlalchemy import select
 
-from app.core.config import settings
 from app.external.celery.app import celery_app
+from app.external.postgres.models import Trade
+from app.external.postgres.sync_engine import get_sync_session
 
 logger = logging.getLogger(__name__)
 
@@ -33,13 +32,8 @@ BATCH_LIMIT = 50
 
 def _get_unnotified_trades_sync(grace_minutes: int = RECONCILIATION_GRACE_MINUTES, limit: int = BATCH_LIMIT):
     """Synchronous DB query for trades pending notification (Celery context)."""
-    from app.external.postgres.models import Trade
-
-    sync_url = settings.sync_database_url
-    engine = create_engine(sync_url, pool_size=2, pool_pre_ping=True)
-
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=grace_minutes)
-    with Session(engine) as session:
+    with get_sync_session() as session:
         result = session.execute(
             select(Trade)
             .where(Trade.notification_sent.is_(False))

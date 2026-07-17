@@ -18,9 +18,12 @@ import uuid
 from datetime import datetime, timezone
 
 import redis as sync_redis
+from sqlalchemy import update
 
 from app.external.celery.app import celery_app
 from app.core.config import settings
+from app.external.postgres.models import Trade
+from app.external.postgres.sync_engine import get_sync_session
 from app.external.webhook.client import send_webhook_notification
 
 logger = logging.getLogger(__name__)
@@ -36,25 +39,13 @@ IDEMPOTENCY_TTL_SECONDS = 86_400   # 24 hours
 
 def _get_trade_sync(trade_id: str):
     """Fetch a Trade record synchronously (for Celery task context)."""
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import Session
-    from app.external.postgres.models import Trade
-
-    sync_url = settings.sync_database_url
-    engine = create_engine(sync_url, pool_size=2, pool_pre_ping=True)
-    with Session(engine) as session:
+    with get_sync_session() as session:
         return session.get(Trade, uuid.UUID(trade_id))
 
 
 def _mark_notification_sent_sync(trade_id: str) -> None:
     """Set notification_sent=True on the trade record (sync)."""
-    from sqlalchemy import create_engine, update
-    from sqlalchemy.orm import Session
-    from app.external.postgres.models import Trade
-
-    sync_url = settings.sync_database_url
-    engine = create_engine(sync_url, pool_size=2, pool_pre_ping=True)
-    with Session(engine) as session:
+    with get_sync_session() as session:
         session.execute(
             update(Trade)
             .where(Trade.id == uuid.UUID(trade_id))
@@ -168,13 +159,7 @@ def notification_dead_letter(trade_id: str, reason: str = "max_retries_exceeded"
     )
 
     try:
-        from sqlalchemy import create_engine, update
-        from sqlalchemy.orm import Session
-        from app.external.postgres.models import Trade
-
-        sync_url = settings.sync_database_url
-        engine = create_engine(sync_url)
-        with Session(engine) as session:
+        with get_sync_session() as session:
             session.execute(
                 update(Trade)
                 .where(Trade.id == uuid.UUID(trade_id))
