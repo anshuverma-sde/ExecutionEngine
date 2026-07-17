@@ -44,13 +44,13 @@ def create_llm_provider(
 
     if p == "groq":
         from app.external.llm.providers.groq import GroqProvider
-        resolved_model = model or "compound-beta"   # Groq agentic system, best for tool use in 2026
+        resolved_model = model or "openai/gpt-oss-20b"   # fast OSS model on Groq, tool calling supported
         logger.info("LLM factory: Groq | model=%s", resolved_model)
         return GroqProvider(api_key=api_key, model=resolved_model)
 
     elif p == "openai":
         from app.external.llm.providers.openai import OpenAIProvider
-        resolved_model = model or "gpt-5.6-terra"   # cost-balanced flagship in 2026
+        resolved_model = model or "gpt-5.4-mini"   # cost-optimised OpenAI model in 2026
         logger.info("LLM factory: OpenAI | model=%s", resolved_model)
         return OpenAIProvider(api_key=api_key, model=resolved_model)
 
@@ -64,7 +64,7 @@ def create_llm_provider(
     elif p == "langchain":
         from app.external.llm.providers.langchain import LangChainProvider
         backend = langchain_backend.lower().strip()
-        resolved_model = model or ("compound-beta" if backend == "groq" else "gpt-5.6-terra")
+        resolved_model = model or ("openai/gpt-oss-20b" if backend == "groq" else "gpt-5.4-mini")
         logger.info("LLM factory: LangChain | backend=%s | model=%s", backend, resolved_model)
         return LangChainProvider(
             backend=backend,

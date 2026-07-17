@@ -30,15 +30,16 @@ class Settings(BaseSettings):
     LANGCHAIN_BACKEND: str = "groq"
 
     # Groq (free tier) — https://console.groq.com
-    # Best for tool use (2026): compound-beta, openai/gpt-oss-120b, qwen/qwen3.6-27b
-    # Note: llama-3.3-70b-versatile deprecated June 17, 2026
+    # Recommended for tool use (2026): openai/gpt-oss-20b (default, fast + tool support)
+    # Alternatives: openai/gpt-oss-120b (more capable), qwen/qwen3.6-27b, meta-llama/llama-4-scout
+    # Note: compound-beta requires special access; llama-3.3 deprecated June 17, 2026
     GROQ_API_KEY: str = ""
-    GROQ_MODEL: str = "compound-beta"
+    GROQ_MODEL: str = "openai/gpt-oss-20b"
 
     # OpenAI — https://platform.openai.com
-    # Latest flagship (2026): gpt-5.6 | cost-balanced: gpt-5.6-terra
+    # Cost-optimised (2026): gpt-5.4-mini | balanced: gpt-5.6-terra | flagship: gpt-5.6
     OPENAI_API_KEY: str = ""
-    OPENAI_MODEL: str = "gpt-5.6-terra"
+    OPENAI_MODEL: str = "gpt-5.4-mini"
 
     # Ollama (local, no API key needed) — https://ollama.com
     # Best local tool-caller (2026): qwen3:8b (5GB), qwen3:14b (9GB)
