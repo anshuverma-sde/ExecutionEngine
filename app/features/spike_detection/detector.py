@@ -36,7 +36,7 @@ class SpikeDetector:
 
     def __init__(self, price_window: Any) -> None:
         self._window = price_window
-        self._cooldown = CooldownManager(price_window._redis)
+        self._cooldown = CooldownManager(price_window.redis_client)
 
     async def detect(
         self, security_id: str, ltp: float, ts: datetime

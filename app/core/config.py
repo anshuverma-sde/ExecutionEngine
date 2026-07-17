@@ -41,6 +41,14 @@ class Settings(BaseSettings):
     # Notification
     WEBHOOK_URL: str = "http://localhost:8001/notify"
     WEBHOOK_TIMEOUT_SECONDS: int = 10
+    # Circuit breaker: fail-fast after this many consecutive webhook failures
+    WEBHOOK_CIRCUIT_BREAKER_THRESHOLD: int = 5
+    # Circuit breaker: seconds before auto-reset after tripping
+    WEBHOOK_CIRCUIT_BREAKER_RESET_SECONDS: int = 60
+
+    # Celery notification task — tunable per environment
+    NOTIFICATION_MAX_RETRIES: int = 5       # max delivery attempts (0 = first try only)
+    NOTIFICATION_BACKOFF_BASE_SECONDS: int = 30  # doubles each attempt: 30→60→120→240→480
 
     # App
     LOG_LEVEL: str = "INFO"

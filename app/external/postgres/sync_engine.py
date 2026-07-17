@@ -30,8 +30,8 @@ def _get_engine():
     if _engine is None:
         _engine = create_engine(
             settings.sync_database_url,
-            pool_size=5,
-            max_overflow=10,
+            pool_size=20,    # one per Celery worker thread; safe up to 10x workers
+            max_overflow=30,
             pool_pre_ping=True,
         )
         _SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False)

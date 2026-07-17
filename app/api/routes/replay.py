@@ -6,13 +6,51 @@ This is how the evaluators will test the engine.
 """
 import json
 import logging
-from datetime import datetime, timezone
+import math
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, field_validator
 
 from app.features.ingestion.pipeline import ingest_tick
 from app.metrics.latency import latency_collector
+
+_MAX_FUTURE_SECONDS = 300   # reject timestamps more than 5 minutes in the future
+
+
+class TickInput(BaseModel):
+    """Validated representation of a single NDJSON tick line."""
+
+    security_id: str
+    ltp: float
+    ts: datetime
+
+    @field_validator("ltp")
+    @classmethod
+    def ltp_must_be_positive_finite(cls, v: float) -> float:
+        if not math.isfinite(v):
+            raise ValueError("ltp must be a finite number (not NaN or Infinity)")
+        if v <= 0:
+            raise ValueError(f"ltp must be positive, got {v}")
+        return v
+
+    @field_validator("ts", mode="before")
+    @classmethod
+    def parse_ts(cls, v):
+        if isinstance(v, str):
+            return datetime.fromisoformat(v.replace("Z", "+00:00"))
+        return v
+
+    @field_validator("ts")
+    @classmethod
+    def ts_not_far_future(cls, v: datetime) -> datetime:
+        now = datetime.now(timezone.utc)
+        if v.tzinfo is None:
+            v = v.replace(tzinfo=timezone.utc)
+        if v > now + timedelta(seconds=_MAX_FUTURE_SECONDS):
+            raise ValueError(f"ts is too far in the future: {v.isoformat()}")
+        return v
 
 logger = logging.getLogger(__name__)
 
@@ -132,14 +170,10 @@ async def replay(
             continue
 
         try:
-            tick = json.loads(line)
-            security_id = str(tick["security_id"])
-            ltp = float(tick["ltp"])
-            # Accept both "Z" suffix and "+00:00"
-            ts_raw: str = tick["ts"]
-            ts: datetime = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+            raw = json.loads(line)
+            tick = TickInput.model_validate(raw)
 
-            signal = await ingest_tick(security_id, ltp, ts)
+            signal = await ingest_tick(tick.security_id, tick.ltp, tick.ts)
             processed += 1
             if signal:
                 signals += 1
@@ -163,6 +197,7 @@ async def replay(
         "latency_stats": latency_collector.stats(),
     }
     if error_details:
-        result["error_details"] = error_details[:20]   # cap to avoid huge responses
+        result["total_errors"] = len(error_details)
+        result["error_details"] = error_details[:20]   # first 20; check total_errors for full count
 
     return JSONResponse(content=result)
