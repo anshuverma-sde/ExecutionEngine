@@ -30,16 +30,19 @@ class Settings(BaseSettings):
     LANGCHAIN_BACKEND: str = "groq"
 
     # Groq (free tier) — https://console.groq.com
+    # Best for tool use (2026): groq/compound, openai/gpt-oss-120b
     GROQ_API_KEY: str = ""
-    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    GROQ_MODEL: str = "groq/compound"
 
     # OpenAI — https://platform.openai.com
+    # Latest flagship (2026): gpt-5.6 | cost-balanced: gpt-5.6-terra
     OPENAI_API_KEY: str = ""
-    OPENAI_MODEL: str = "gpt-4o-mini"
+    OPENAI_MODEL: str = "gpt-5.6-terra"
 
     # Ollama (local, no API key needed) — https://ollama.com
+    # Best local tool-caller (2026): qwen3:8b (5GB), qwen3:14b (9GB)
     OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "llama3.2"
+    OLLAMA_MODEL: str = "qwen3:8b"
 
     # Notification
     WEBHOOK_URL: str = "http://localhost:8001/notify"

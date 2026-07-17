@@ -4,10 +4,18 @@ Uses the OpenAI-compatible REST API that Ollama exposes at localhost:11434.
 Set LLM_PROVIDER=ollama in your .env to activate.
 
 Install Ollama: https://ollama.com
-Pull a model: ollama pull llama3.2 (or qwen2.5, mistral, etc.)
 
-Note: Tool calling support depends on the model. llama3.1+ and qwen2.5
-support function calling reliably.
+Recommended models for tool calling (as of 2026):
+  - qwen3:8b          (default — native tool support, thinking mode, 5GB, 131K ctx)
+  - qwen3:14b         (stronger reasoning, 9GB)
+  - qwen3:32b         (best open tool-caller at mid-size, 20GB)
+  - granite4.1:8b     (IBM, purpose-built for tool use, 5GB)
+  - llama3.3:70b      (strong general + tools, requires 48GB+ VRAM)
+
+Pull a model: ollama pull qwen3:8b
+
+Note: llama3.2 was the 2024 default. For 2026, qwen3:8b has significantly
+better tool-calling accuracy and native function-call template support.
 """
 import json
 import logging

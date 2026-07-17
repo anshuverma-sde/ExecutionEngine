@@ -399,7 +399,7 @@ DHAN_ACCESS_TOKEN=your_access_token
 # AI provider
 LLM_PROVIDER=groq
 GROQ_API_KEY=gsk_...
-GROQ_MODEL=llama-3.3-70b-versatile
+GROQ_MODEL=groq/compound
 
 # Notification webhook (your WhatsApp/Twilio endpoint)
 WEBHOOK_URL=https://your-webhook-endpoint.com/notify
@@ -534,13 +534,14 @@ DATABASE_URL=postgresql+asyncpg://user:password@host:5432/dbname
 | `CELERY_RESULT_BACKEND` | `redis://localhost:6379/2` | Celery result store |
 | `DHAN_CLIENT_ID` | _(empty)_ | DhanHQ client ID (omit to disable live feed) |
 | `DHAN_ACCESS_TOKEN` | _(empty)_ | DhanHQ access token |
-| `LLM_PROVIDER` | `groq` | AI provider: `groq` \| `openai` \| `ollama` |
+| `LLM_PROVIDER` | `groq` | AI provider: `groq` \| `openai` \| `ollama` \| `langchain` |
 | `GROQ_API_KEY` | _(empty)_ | Groq API key — [console.groq.com](https://console.groq.com) |
-| `GROQ_MODEL` | `llama-3.3-70b-versatile` | Groq model |
+| `GROQ_MODEL` | `groq/compound` | Groq model (2026: `groq/compound`, `openai/gpt-oss-120b`, `llama-3.3-70b-versatile`) |
 | `OPENAI_API_KEY` | _(empty)_ | OpenAI API key (when `LLM_PROVIDER=openai`) |
-| `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model |
+| `OPENAI_MODEL` | `gpt-5.6-terra` | OpenAI model (2026: `gpt-5.6`, `gpt-5.6-terra`, `gpt-5.6-luna`) |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL (when `LLM_PROVIDER=ollama`) |
-| `OLLAMA_MODEL` | `llama3.2` | Ollama model |
+| `OLLAMA_MODEL` | `qwen3:8b` | Ollama model (2026: `qwen3:8b`, `qwen3:14b`, `granite4.1:8b`) |
+| `LANGCHAIN_BACKEND` | `groq` | Backend for LangChain provider: `groq` \| `openai` |
 | `WEBHOOK_URL` | `http://localhost:8001/notify` | Notification delivery endpoint |
 | `WEBHOOK_TIMEOUT_SECONDS` | `10` | HTTP timeout for outbound notifications |
 | `LOG_LEVEL` | `INFO` | Logging level: DEBUG \| INFO \| WARNING \| ERROR |
@@ -724,7 +725,7 @@ Clear all latency samples.
 ```json
 {
   "answer": "The best performing strike was NIFTY 22450 CE with total P&L of ₹847.20 across 9 trades.",
-  "model": "llama-3.3-70b-versatile",
+  "model": "groq/compound",
   "turns": 2
 }
 ```

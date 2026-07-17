@@ -1,7 +1,16 @@
-"""OpenAI LLM provider (GPT-4o, GPT-4o-mini, etc.).
+"""OpenAI LLM provider.
 
 Uses the `openai` Python SDK with the async client.
 Set LLM_PROVIDER=openai in your .env to activate.
+
+Recommended models (as of 2026):
+  - gpt-5.6          (flagship — full tool/function calling, best quality)
+  - gpt-5.6-terra    (balanced cost/intelligence, recommended for production)
+  - gpt-5.6-luna     (cost-optimised, high-volume use cases)
+  - gpt-5.4-mini     (budget option — coding + structured output)
+
+Note: gpt-4o-mini, gpt-4.1, o3, and o4-mini are deprecated as of mid-2026.
+For new integrations use gpt-5.6 or gpt-5.6-terra.
 
 Get an API key at: https://platform.openai.com
 """
