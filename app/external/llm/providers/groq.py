@@ -4,19 +4,19 @@ Uses the `groq` Python SDK with the async client.
 Supports parallel tool calling via the standard OpenAI function-calling format.
 
 Recommended models (as of 2026):
-  - compound-beta              (default — Groq agentic system, built-in web search + code exec, best for tool use)
-  - compound-beta-mini         (faster/cheaper agentic variant)
-  - openai/gpt-oss-120b        (OpenAI OSS model on Groq infra, full function calling, 131K context)
-  - openai/gpt-oss-20b         (lighter OSS model, tool calling, lower latency)
+  - openai/gpt-oss-20b         (default — fast OSS model on Groq, tool calling, lower latency)
+  - openai/gpt-oss-120b        (more capable OSS model, full function calling, 131K context)
   - qwen/qwen3.6-27b           (open-weight, strong reasoning + tool use, 131K context)
   - meta-llama/llama-4-scout   (Llama 4 long-context, 10M context window)
+  - compound-beta              (Groq agentic system — requires special access tier)
+  - compound-beta-mini         (lighter agentic variant — requires special access tier)
 
 DEPRECATED (as of June 17, 2026 — no longer available on Groq):
   - llama-3.3-70b-versatile    (deprecated June 17, 2026)
   - llama-3.1-8b-instant       (deprecated June 17, 2026)
   - mixtral-8x7b-32768         (deprecated 2025)
 
-For tool use / function calling: compound-beta or openai/gpt-oss-120b.
+For tool use / function calling: openai/gpt-oss-20b (default) or openai/gpt-oss-120b.
 
 Get a free API key at: https://console.groq.com
 """
