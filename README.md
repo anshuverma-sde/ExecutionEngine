@@ -128,6 +128,10 @@ app/
 
 ## Local Development Setup
 
+> **Quickest start:** If you have Docker installed, skip to [Production Setup](#production-setup) and run `docker compose up --build -d` — one command brings up everything including Postgres, Redis, migrations, Celery worker, and Beat.
+>
+> Use the manual steps below only if you prefer to run the app directly on your machine (faster reload for development).
+
 ### Prerequisites
 
 - Python 3.10+
@@ -412,23 +416,21 @@ ENVIRONMENT=production
 docker compose up --build -d
 ```
 
-This starts:
+This starts all services in the correct order:
+
 | Service | Description |
 |---|---|
-| `postgres` | PostgreSQL 16 database with persistent volume |
-| `redis` | Redis 7 for price window, cooldown, and Celery |
-| `app` | FastAPI server on port 8000 |
-| `celery-worker` | 4-process Celery worker (notifications + reconciliation) |
-| `celery-beat` | Celery Beat scheduler (reconciliation every 60s) |
-| `webhook-mock` | Mock webhook receiver on port 8001 (remove in prod) |
+| `postgres` | PostgreSQL 16 with persistent volume (`pgdata`) |
+| `redis` | Redis 7 with AOF persistence (`redisdata`) |
+| `migrate` | Runs `alembic upgrade head` once, then exits |
+| `app` | FastAPI server on port 8000 (starts after migrate completes) |
+| `celery-worker` | 4-process Celery worker (notifications queue) |
+| `celery-beat` | Beat scheduler — reconciliation task every 60s |
+| `webhook-mock` | Mock webhook receiver on port 8001 for local testing |
 
-### Step 4 — Run database migrations
+> **Migrations run automatically** via the `migrate` service — no manual step needed. To run manually if required: `docker compose run --rm migrate alembic upgrade head`
 
-```bash
-docker compose exec app alembic upgrade head
-```
-
-### Step 5 — Verify all containers are healthy
+### Step 4 — Verify all containers are healthy
 
 ```bash
 docker compose ps
