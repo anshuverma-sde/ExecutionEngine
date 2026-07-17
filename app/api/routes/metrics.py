@@ -47,19 +47,17 @@ async def reconciliation_status() -> dict:
 
     Queries live DB state. Useful for confirming the Beat task is making progress.
     """
-    from sqlalchemy import create_engine, func, select
-    from sqlalchemy.orm import Session
+    from sqlalchemy import func, select
     from datetime import timedelta
 
-    from app.core.config import settings
     from app.external.postgres.models import Trade
+    from app.external.postgres.sync_engine import get_sync_session
 
-    sync_url = settings.sync_database_url
-    engine = create_engine(sync_url, pool_size=2, pool_pre_ping=True)
+    # Keep timezone info — comparing against a timestamptz column requires an
+    # aware datetime. Stripping tzinfo here causes silent mismatch on Postgres.
+    grace_cutoff = datetime.now(timezone.utc) - timedelta(minutes=2)
 
-    grace_cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=2)
-
-    with Session(engine) as session:
+    with get_sync_session() as session:
         pending = session.execute(
             select(func.count(Trade.id))
             .where(Trade.notification_sent.is_(False))

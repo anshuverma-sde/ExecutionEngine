@@ -43,7 +43,7 @@ async def tool_get_last_trade(session: AsyncSession) -> dict:
     }
 
 
-async def tool_get_open_positions(limit: int = 20, session: AsyncSession = None) -> list[dict]:
+async def tool_get_open_positions(limit: int = 20, *, session: AsyncSession) -> list[dict]:
     """Return recent simulated trades (all positions are open — no exit in simulation).
 
     Returns the most recent `limit` trades as open positions.
@@ -108,7 +108,7 @@ async def tool_get_pnl_summary(session: AsyncSession) -> dict:
     }
 
 
-async def tool_get_spike_events(limit: int = 10, session: AsyncSession = None) -> list[dict]:
+async def tool_get_spike_events(limit: int = 10, *, session: AsyncSession) -> list[dict]:
     """Return the most recent spike-triggered trade events with their signal details."""
     limit = min(max(1, limit), 100)
     result = await session.execute(
