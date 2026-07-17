@@ -3,10 +3,15 @@
 Uses the `groq` Python SDK with the async client.
 Supports parallel tool calling via the standard OpenAI function-calling format.
 
-Recommended models (as of 2025):
-  - llama-3.3-70b-versatile   (default — best for tool use)
-  - llama-3.1-8b-instant      (fastest, lower quality)
-  - mixtral-8x7b-32768        (good context window)
+Recommended models (as of 2026):
+  - groq/compound              (default — agentic, built-in web search + code exec, best for tool use)
+  - openai/gpt-oss-120b        (OpenAI OSS model on Groq infra, full tool/function calling)
+  - openai/gpt-oss-20b         (lighter OSS model, tool calling, lower latency)
+  - llama-3.3-70b-versatile    (strong general model, 131K context)
+  - llama-3.1-8b-instant       (fastest, lower quality, good for high-throughput)
+
+Note: mixtral-8x7b-32768 was deprecated in 2025. For tool use, prefer groq/compound
+or openai/gpt-oss-* variants which have native function-calling support.
 
 Get a free API key at: https://console.groq.com
 """

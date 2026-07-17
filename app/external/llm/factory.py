@@ -44,27 +44,27 @@ def create_llm_provider(
 
     if p == "groq":
         from app.external.llm.providers.groq import GroqProvider
-        resolved_model = model or "llama-3.3-70b-versatile"
+        resolved_model = model or "groq/compound"   # best for tool use in 2026
         logger.info("LLM factory: Groq | model=%s", resolved_model)
         return GroqProvider(api_key=api_key, model=resolved_model)
 
     elif p == "openai":
         from app.external.llm.providers.openai import OpenAIProvider
-        resolved_model = model or "gpt-4o-mini"
+        resolved_model = model or "gpt-5.6-terra"   # cost-balanced flagship in 2026
         logger.info("LLM factory: OpenAI | model=%s", resolved_model)
         return OpenAIProvider(api_key=api_key, model=resolved_model)
 
     elif p == "ollama":
         from app.external.llm.providers.ollama import OllamaProvider
         resolved_url = base_url or "http://localhost:11434"
-        resolved_model = model or "llama3.2"
+        resolved_model = model or "qwen3:8b"   # best local tool-caller in 2026
         logger.info("LLM factory: Ollama | model=%s | url=%s", resolved_model, resolved_url)
         return OllamaProvider(base_url=resolved_url, model=resolved_model)
 
     elif p == "langchain":
         from app.external.llm.providers.langchain import LangChainProvider
         backend = langchain_backend.lower().strip()
-        resolved_model = model or ("llama-3.3-70b-versatile" if backend == "groq" else "gpt-4o-mini")
+        resolved_model = model or ("groq/compound" if backend == "groq" else "gpt-5.6-terra")
         logger.info("LLM factory: LangChain | backend=%s | model=%s", backend, resolved_model)
         return LangChainProvider(
             backend=backend,
