@@ -57,6 +57,20 @@ def _mark_notification_sent_sync(trade_id: str) -> None:
         session.commit()
 
 
+def _increment_retry_count_sync(trade_id: str) -> None:
+    """Increment notification_retry_count by 1 on each failed attempt."""
+    try:
+        with get_sync_session() as session:
+            session.execute(
+                update(Trade)
+                .where(Trade.id == uuid.UUID(trade_id))
+                .values(notification_retry_count=Trade.notification_retry_count + 1)
+            )
+            session.commit()
+    except Exception as exc:
+        logger.warning("Could not increment retry count for %s: %s", trade_id, exc)
+
+
 def _format_notification_message(trade) -> str:
     """Format the notification message per spec."""
     time_str = trade.created_at.strftime("%H:%M")
@@ -145,6 +159,7 @@ def send_trade_notification(self, trade_id: str) -> dict:
             )
             return {"status": "dead_letter", "trade_id": trade_id}
 
+        _increment_retry_count_sync(trade_id)
         countdown = 30 * (2 ** attempt)   # 30s, 60s, 120s, 240s, 480s
 
         logger.warning(
