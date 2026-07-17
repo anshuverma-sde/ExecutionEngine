@@ -8,7 +8,7 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Body, Query, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from app.features.ingestion.pipeline import ingest_tick
@@ -18,12 +18,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["debug"])
 
-
-_REPLAY_EXAMPLE = (
-    '{"security_id": "13", "ltp": 22000.0, "ts": "2026-07-10T09:30:00Z"}\n'
-    '{"security_id": "13", "ltp": 22000.5, "ts": "2026-07-10T09:30:01Z"}\n'
-    '{"security_id": "13", "ltp": 23210.0, "ts": "2026-07-10T09:31:05Z"}'
-)
 
 
 @router.post(
