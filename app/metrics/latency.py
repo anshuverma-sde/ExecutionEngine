@@ -1,37 +1,74 @@
-"""LatencyCollector singleton — records and reports pipeline latency."""
-import logging
-import time
+"""Tick-to-signal latency measurement.
 
-logger = logging.getLogger(__name__)
+Measurement scope (per spec):
+  From when a tick enters ingest_tick() to when the spike detector returns
+  a decision. Does NOT include Postgres write or Celery enqueue.
+
+Uses a thread-safe bounded deque so Celery workers (sync threads) can also
+record samples without corrupting the collector.
+"""
+import threading
+from collections import deque
+from typing import Any
+
+import numpy as np
+
+_MAX_SAMPLES = 50_000   # Rolling window — oldest samples auto-evicted
 
 
 class LatencyCollector:
-    """Thread-safe collector for end-to-end pipeline latency measurements."""
+    """Thread-safe rolling latency collector.
 
-    _instance: "LatencyCollector | None" = None
+    A module-level singleton (latency_collector) is the canonical instance.
+    """
 
-    def __new__(cls) -> "LatencyCollector":
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._samples: list[float] = []
-        return cls._instance
+    def __init__(self, maxlen: int = _MAX_SAMPLES) -> None:
+        self._samples: deque[float] = deque(maxlen=maxlen)
+        self._lock = threading.Lock()
 
     def record(self, latency_ms: float) -> None:
-        """Record a single latency measurement in milliseconds."""
-        pass
+        """Record a single latency sample in milliseconds."""
+        with self._lock:
+            self._samples.append(latency_ms)
 
     def percentile(self, pct: float) -> float | None:
-        """
-        Return the given percentile (0–100) of recorded latencies.
+        """Return the given percentile (0–100). Returns None if no samples."""
+        with self._lock:
+            if not self._samples:
+                return None
+            arr = list(self._samples)
+        return float(np.percentile(arr, pct))
 
-        Returns None if no samples have been recorded.
-        """
-        pass
+    def stats(self) -> dict[str, Any]:
+        """Return p50, p95, p99, max, count, and SLA status."""
+        with self._lock:
+            if not self._samples:
+                return {
+                    "p50_ms": 0.0,
+                    "p95_ms": 0.0,
+                    "p99_ms": 0.0,
+                    "max_ms": 0.0,
+                    "count": 0,
+                    "sla_met": True,   # vacuously true — no data yet
+                }
+            arr = list(self._samples)
 
-    def stats(self) -> dict:
-        """Return p50, p95, p99, mean and sample count as a dict."""
-        pass
+        p50, p95, p99 = np.percentile(arr, [50, 95, 99])
+        max_ms = float(max(arr))
+        return {
+            "p50_ms": round(float(p50), 3),
+            "p95_ms": round(float(p95), 3),
+            "p99_ms": round(float(p99), 3),
+            "max_ms": round(max_ms, 3),
+            "count": len(arr),
+            "sla_met": float(p99) <= 50.0,   # hard requirement: p99 < 50ms
+        }
 
     def reset(self) -> None:
-        """Clear all recorded samples (useful between benchmark runs)."""
-        pass
+        """Clear all samples — useful before benchmark / replay runs."""
+        with self._lock:
+            self._samples.clear()
+
+
+# Module-level singleton — import this everywhere
+latency_collector = LatencyCollector()
