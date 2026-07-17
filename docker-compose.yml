@@ -1,86 +1,170 @@
-version: "3.9"
+##############################################################################
+# Instant Strike Execution Engine — Docker Compose
+# Brings up: postgres, redis, migrate, app, celery-worker, celery-beat,
+#            webhook-mock (dev convenience)
+#
+# Usage:
+#   docker compose up --build          # dev (with webhook-mock)
+#   docker compose up --build -d       # detached
+#   docker compose logs -f app         # follow app logs
+##############################################################################
 
 services:
+
+  # ── Infrastructure ─────────────────────────────────────────────────────────
+
   postgres:
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: engine
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: pass
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
     volumes:
       - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"    # 5432 used by local postgres; access via localhost:5433
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d engine"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d engine"]
       interval: 5s
       timeout: 3s
-      retries: 5
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - backend
 
   redis:
     image: redis:7-alpine
+    # AOF persistence — survives container restart, Beat reconciliation covers gaps
+    command: redis-server --appendonly yes --appendfsync everysec
+    volumes:
+      - redisdata:/data
     ports:
-      - "6379:6379"
-    command: redis-server --save "" --appendonly no
+      - "6380:6379"    # 6379 used by local redis; access via localhost:6380
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
-      retries: 5
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # ── Migration (runs once, then exits) ──────────────────────────────────────
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: final
+    command: alembic upgrade head
+    env_file: .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: engine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - backend
+
+  # ── Application ────────────────────────────────────────────────────────────
 
   app:
     build:
       context: .
       dockerfile: Dockerfile
       target: final
+    image: execution-engine:latest
     ports:
       - "8000:8000"
     env_file: .env
+    environment:
+      # Override localhost refs to Docker service names
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: engine
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      WEBHOOK_URL: http://webhook-mock:8001/notify
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
+    networks:
+      - backend
+
+  # ── Celery Worker ───────────────────────────────────────────────────────────
 
   celery-worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: final
+    image: execution-engine:latest
     command: >
       celery -A app.external.celery.app worker
       --loglevel=info
       --concurrency=4
-      --queues=notifications,reconciliation,default
+      --queues=notifications,celery
     env_file: .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: engine
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      WEBHOOK_URL: http://webhook-mock:8001/notify
     depends_on:
       redis:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      app:
+        condition: service_healthy
     restart: unless-stopped
+    networks:
+      - backend
+
+  # ── Celery Beat ─────────────────────────────────────────────────────────────
 
   celery-beat:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: final
+    image: execution-engine:latest
     command: >
       celery -A app.external.celery.app beat
       --loglevel=info
       --pidfile=/tmp/celerybeat.pid
     env_file: .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: engine
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
     depends_on:
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
+    networks:
+      - backend
+
+  # ── Webhook Mock (dev / testing only) ──────────────────────────────────────
 
   webhook-mock:
     build:
@@ -89,6 +173,13 @@ services:
     ports:
       - "8001:8001"
     restart: unless-stopped
+    networks:
+      - backend
 
 volumes:
   pgdata:
+  redisdata:
+
+networks:
+  backend:
+    driver: bridge
