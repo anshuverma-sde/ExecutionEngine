@@ -15,7 +15,7 @@ Failure scenario Q2 (spec):
 """
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 import redis as sync_redis
 
@@ -60,7 +60,7 @@ def _mark_notification_sent_sync(trade_id: str) -> None:
             .where(Trade.id == uuid.UUID(trade_id))
             .values(
                 notification_sent=True,
-                notification_sent_at=datetime.utcnow(),
+                notification_sent_at=datetime.now(timezone.utc),
             )
         )
         session.commit()

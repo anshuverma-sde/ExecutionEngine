@@ -15,7 +15,7 @@ after max_retries are exhausted (notification_dead_letter).
 """
 import logging
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
@@ -38,7 +38,7 @@ def _get_unnotified_trades_sync(grace_minutes: int = RECONCILIATION_GRACE_MINUTE
     sync_url = settings.sync_database_url
     engine = create_engine(sync_url, pool_size=2, pool_pre_ping=True)
 
-    cutoff = datetime.utcnow() - timedelta(minutes=grace_minutes)
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=grace_minutes)
     with Session(engine) as session:
         result = session.execute(
             select(Trade)
