@@ -732,3 +732,42 @@ docker compose exec app python scripts/benchmark.py
   SLA (p99 < 50ms) : ✓ PASS
 =======================================================
 ```
+
+---
+
+## What Was Cut and Why
+
+### Exit Price / Live P&L
+All trades are recorded with `pnl = 0.0` at entry. Computing real P&L requires a second price point (exit), which means either a time-based exit (e.g., 15-minute expiry) or a second spike detector running in reverse. This was cut because the spec says "simulate a trade" — it does not define an exit condition. Next step: add a configurable holding period (e.g., 15 min) after which a Celery Beat task fetches the current LTP and closes the position.
+
+### WhatsApp / SMS Provider
+The spec allows "a mock HTTP endpoint you stand up yourself." The webhook-mock service (`docker/webhook_mock.py`) serves this role. Integrating Twilio or Meta WhatsApp Cloud API would require account verification and production credentials, which adds environment-specific setup with no architectural value for evaluation. The delivery semantics (retry, idempotency, reconciliation) are fully implemented — swapping the HTTP target is a one-line `.env` change.
+
+### Multi-Instrument Support
+The engine is hardcoded to NIFTY 50 (security ID 13). Extending to BANKNIFTY or FINNIFTY requires parameterising `SECURITY_ID` in the consumer and adding per-instrument cooldown and window keys. The Redis key schema (`price_window:{security_id}`, `cooldown:{security_id}`) already supports this — only the subscription list needs updating.
+
+### Historical Backfill
+On cold start the Redis window is empty. The first 60 seconds of live data produce no signals (by design — no reference price). A production system would pre-fill the window from a historical tick store. Skipped because the replay endpoint covers the evaluation scenario.
+
+---
+
+## Questions Asked
+
+### Q: Can we use an alternative LLM provider instead of OpenAI?
+The spec says "OpenAI API, Ollama, LangChain, LlamaIndex — your choice." Groq was chosen as the default because it is free-tier, OpenAI-compatible, and requires no local GPU. The architecture is provider-agnostic — switching to OpenAI or Ollama is a single env var change (`LLM_PROVIDER=openai`).
+
+### Q: What is the intended exit condition for P&L calculation?
+The spec does not define one. Decision: record `pnl = 0.0` at entry and document this as a known gap. The DB schema and trade model are ready to store an exit price when an exit mechanism is defined.
+
+### Q: What should happen when the DhanHQ WebSocket goes silent during market close?
+The spec says "your process must not die." Implementation: a watchdog task logs a WARNING after 30 seconds of silence and forces a reconnect after 5 minutes, with exponential backoff capped at 60 seconds between attempts.
+
+---
+
+## One Thing That Went Wrong
+
+**Assumption: DhanHQ v2 uses the same callback API as v1.**
+
+At hour two the consumer was wired with `on_ticks=callback` — the v1 pattern. The library had silently dropped the parameter in v2. The feed connected successfully (WebSocket handshake passed), but no ticks ever arrived. An hour was spent suspecting Redis serialisation and the spike detector before reading the changelog and discovering that v2 uses a polling model: `await feed.get_instrument_data()` in a loop, with no callback at all. The fix was ten lines. The lesson: always read the changelog of a library before assuming the API is stable across major versions.
+
+A second surprise: the network in the development environment runs Sophos SSL inspection. The DhanHQ WebSocket connects to `api-feed.dhan.co` over TLS, and Sophos presents its own CA certificate. Python's default SSL context rejected it with `CERTIFICATE_VERIFY_FAILED`. The fix (switching to a network without the proxy) took minutes once diagnosed, but diagnosing it — distinguishing a Sophos intercept from a genuine cert error — required extracting the certificate chain and reading the issuer field.
