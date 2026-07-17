@@ -128,6 +128,23 @@ def send_trade_notification(self, trade_id: str) -> dict:
         _redis.delete(idempotency_key)
 
         attempt = self.request.retries
+
+        if attempt >= self.max_retries:
+            # All retries exhausted — hand off to dead-letter handler explicitly.
+            # We do NOT use Celery's link_error here because link_error prepends
+            # the failed task's UUID as the first positional arg, corrupting
+            # the trade_id received by notification_dead_letter.
+            logger.error(
+                "Notification permanently failed for %s after %d attempts: %s",
+                trade_id,
+                attempt + 1,
+                exc,
+            )
+            notification_dead_letter.apply_async(
+                args=[trade_id, f"max_retries_exceeded: {exc}"]
+            )
+            return {"status": "dead_letter", "trade_id": trade_id}
+
         countdown = 30 * (2 ** attempt)   # 30s, 60s, 120s, 240s, 480s
 
         logger.warning(

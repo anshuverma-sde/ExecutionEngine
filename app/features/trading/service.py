@@ -54,38 +54,41 @@ async def handle_signal(signal: Signal, db: AsyncSession) -> Trade | None:
         trade = await repo.create(trade)
         await db.commit()
 
-        logger.info(
-            "Trade committed | id=%s | %s NIFTY %d %s | entry=%.2f | %s",
-            trade.id,
-            trade.side,
-            trade.strike,
-            trade.option_type,
-            trade.entry_price,
-            signal.reason,
-        )
-
-        # Enqueue notification AFTER successful commit
-        _enqueue_notification(str(trade.id))
-        return trade
-
     except Exception as exc:
         logger.error("handle_signal failed: %s", exc, exc_info=True)
         await db.rollback()
         return None
+
+    # Post-commit: outside the try block so a failed enqueue cannot trigger
+    # db.rollback() on an already-committed transaction.
+    logger.info(
+        "Trade committed | id=%s | %s NIFTY %d %s | entry=%.2f | %s",
+        trade.id,
+        trade.side,
+        trade.strike,
+        trade.option_type,
+        trade.entry_price,
+        signal.reason,
+    )
+    _enqueue_notification(str(trade.id))
+    return trade
 
 
 def _enqueue_notification(trade_id: str) -> None:
     """Enqueue the Celery notification task.
 
     Failure is caught and logged — the Celery Beat reconciliation task
-    (TICKET-009) will detect the unnotified trade within 60 seconds.
+    will detect the unnotified trade within 60 seconds.
+
+    Note: link_error is intentionally NOT used here. Celery's link_error
+    prepends the failed task UUID as the first positional arg, which would
+    corrupt the trade_id received by notification_dead_letter. Instead,
+    send_trade_notification handles dead-lettering explicitly after
+    max_retries are exhausted.
     """
     try:
         from app.features.notifications.tasks import send_trade_notification
-        send_trade_notification.apply_async(
-            args=[trade_id],
-            link_error=_get_dead_letter_signature(trade_id),
-        )
+        send_trade_notification.apply_async(args=[trade_id])
         logger.info("Notification enqueued for trade %s", trade_id)
     except Exception as exc:
         logger.error(
@@ -93,15 +96,6 @@ def _enqueue_notification(trade_id: str) -> None:
             trade_id,
             exc,
         )
-
-
-def _get_dead_letter_signature(trade_id: str):
-    """Return a Celery signature for the dead-letter handler, or None on import error."""
-    try:
-        from app.features.notifications.tasks import notification_dead_letter
-        return notification_dead_letter.s(trade_id)
-    except Exception:
-        return None
 
 
 class TradingService:
