@@ -1,4 +1,4 @@
-"""Pydantic schemas for the trading feature."""
+"""Pydantic response schemas for the trading feature."""
 import uuid
 from datetime import datetime
 
@@ -6,19 +6,19 @@ from pydantic import BaseModel
 
 
 class TradeResponse(BaseModel):
-    """API response schema for a single trade record."""
+    """API response schema for a single trade record (mirrors Trade ORM model)."""
 
     id: uuid.UUID
-    symbol: str
+    instrument: str
     strike: int
-    option_type: str
-    premium: float
-    quantity: int
-    signal_price: float
-    status: str
-    notification_sent: bool
+    option_type: str          # CE | PE
+    side: str                 # LONG | SHORT
+    entry_price: float
+    pnl: float
+    signal_reason: str
     created_at: datetime
-    updated_at: datetime
+    notification_sent: bool
+    notification_failed: bool
 
     model_config = {"from_attributes": True}
 
