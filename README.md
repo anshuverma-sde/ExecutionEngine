@@ -745,6 +745,21 @@ Clear all latency samples.
 
 ## Design Decisions
 
+### Trade Entry Only — No Exit Strategy (P&L = 0.0)
+
+The specification defines entry conditions precisely (≥ +5% spike → buy ATM CE, ≤ −5% spike → buy ATM PE) but intentionally leaves the exit strategy open-ended.
+
+**Decision:** This engine implements entry simulation only. All trades are persisted with `pnl = 0.0`. No exit logic is applied.
+
+**Rationale:**
+- The assignment explicitly evaluates the execution engine — ingestion, spike detection, order simulation, persistence, and async processing. Exit logic is out of scope.
+- Implementing a specific exit policy (time-based, reverse signal, stop-loss/target, EOD square-off) without a clear spec would require arbitrary assumptions that could obscure the engine's core behaviour.
+- The `pnl` column is present in the schema and is ready for an exit strategy to write into it when the scope expands.
+
+**What would be needed for exits:** An exit strategy would require a second price comparison pass (e.g., current LTP vs. entry price), a position tracker keyed by trade ID in Redis, and an async close routine that updates `pnl` and `entry_price` on the Trade record. The existing `TradeRepository.mark_notification_sent` pattern shows exactly how such an update would be structured.
+
+---
+
 ### Redis Sorted Sets for the Rolling Window
 
 - **O(log N) append** via `ZADD` with ms timestamp as score
