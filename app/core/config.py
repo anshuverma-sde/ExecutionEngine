@@ -23,8 +23,11 @@ class Settings(BaseSettings):
     DHAN_ACCESS_TOKEN: str = ""
 
     # AI — provider-agnostic (set LLM_PROVIDER to switch)
-    # Supported: groq | openai | ollama
+    # Supported: groq | openai | ollama | langchain
     LLM_PROVIDER: str = "groq"
+    # LangChain backend — only used when LLM_PROVIDER=langchain
+    # Supported: groq | openai
+    LANGCHAIN_BACKEND: str = "groq"
 
     # Groq (free tier) — https://console.groq.com
     GROQ_API_KEY: str = ""

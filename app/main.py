@@ -93,14 +93,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         # Resolve provider credentials from config
         provider = settings.LLM_PROVIDER
-        api_key = {"groq": settings.GROQ_API_KEY, "openai": settings.OPENAI_API_KEY}.get(provider, "")
-        model = {"groq": settings.GROQ_MODEL, "openai": settings.OPENAI_MODEL, "ollama": settings.OLLAMA_MODEL}.get(provider, "")
+        # For langchain backend, resolve api_key/model from the selected backend
+        _backend = settings.LANGCHAIN_BACKEND if provider == "langchain" else provider
+        api_key = {"groq": settings.GROQ_API_KEY, "openai": settings.OPENAI_API_KEY}.get(_backend, "")
+        model = {"groq": settings.GROQ_MODEL, "openai": settings.OPENAI_MODEL, "ollama": settings.OLLAMA_MODEL}.get(_backend, "")
 
         llm_provider = create_llm_provider(
             provider=provider,
             api_key=api_key,
             model=model,
             base_url=settings.OLLAMA_BASE_URL,
+            langchain_backend=settings.LANGCHAIN_BACKEND,
         )
         await llm_provider.initialise()
         set_anthropic_client(llm_provider)
