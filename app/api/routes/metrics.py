@@ -54,7 +54,7 @@ async def reconciliation_status() -> dict:
     from app.core.config import settings
     from app.external.postgres.models import Trade
 
-    sync_url = settings.DATABASE_URL.replace("+asyncpg", "+psycopg2")
+    sync_url = settings.sync_database_url
     engine = create_engine(sync_url, pool_size=2, pool_pre_ping=True)
 
     grace_cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=2)

@@ -35,7 +35,7 @@ def _get_unnotified_trades_sync(grace_minutes: int = RECONCILIATION_GRACE_MINUTE
     """Synchronous DB query for trades pending notification (Celery context)."""
     from app.external.postgres.models import Trade
 
-    sync_url = settings.DATABASE_URL.replace("+asyncpg", "+psycopg2")
+    sync_url = settings.sync_database_url
     engine = create_engine(sync_url, pool_size=2, pool_pre_ping=True)
 
     cutoff = datetime.utcnow() - timedelta(minutes=grace_minutes)

@@ -46,7 +46,7 @@ def compute_percentile(samples: list[float], pct: float) -> float:
     return sorted_s[lo] + frac * (sorted_s[hi] - sorted_s[lo])
 
 
-def run_benchmark(replay_file: Path, base_url: str) -> dict:
+def run_benchmark(replay_file: Path, base_url: str, reset_window: bool = True) -> dict:
     """POST the replay file and collect server-side + client-side latency stats.
 
     Returns a dict with:
@@ -59,7 +59,8 @@ def run_benchmark(replay_file: Path, base_url: str) -> dict:
     import urllib.request
     import urllib.error
 
-    replay_url = f"{base_url}/debug/replay?reset_metrics=true&reset_window=true"
+    rw = "true" if reset_window else "false"
+    replay_url = f"{base_url}/debug/replay?reset_metrics=true&reset_window={rw}"
     metrics_url = f"{base_url}/metrics/latency"
 
     # ── Read the replay file ──────────────────────────────────────────────────
@@ -184,9 +185,21 @@ def main() -> None:
         action="store_true",
         help="Output raw JSON results instead of the formatted report",
     )
+    parser.add_argument(
+        "--reset-window",
+        action="store_true",
+        default=True,
+        help="Clear the Redis price window before replay so the spike always fires (default: true)",
+    )
+    parser.add_argument(
+        "--no-reset-window",
+        dest="reset_window",
+        action="store_false",
+        help="Keep the existing Redis price window (spike may not fire if cooldown is active)",
+    )
     args = parser.parse_args()
 
-    results = run_benchmark(Path(args.file), args.url.rstrip("/"))
+    results = run_benchmark(Path(args.file), args.url.rstrip("/"), reset_window=args.reset_window)
 
     if args.json:
         print(json.dumps(results, indent=2))

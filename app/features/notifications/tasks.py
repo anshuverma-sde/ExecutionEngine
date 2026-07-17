@@ -40,7 +40,7 @@ def _get_trade_sync(trade_id: str):
     from sqlalchemy.orm import Session
     from app.external.postgres.models import Trade
 
-    sync_url = settings.DATABASE_URL.replace("+asyncpg", "+psycopg2")
+    sync_url = settings.sync_database_url
     engine = create_engine(sync_url, pool_size=2, pool_pre_ping=True)
     with Session(engine) as session:
         return session.get(Trade, uuid.UUID(trade_id))
@@ -52,7 +52,7 @@ def _mark_notification_sent_sync(trade_id: str) -> None:
     from sqlalchemy.orm import Session
     from app.external.postgres.models import Trade
 
-    sync_url = settings.DATABASE_URL.replace("+asyncpg", "+psycopg2")
+    sync_url = settings.sync_database_url
     engine = create_engine(sync_url, pool_size=2, pool_pre_ping=True)
     with Session(engine) as session:
         session.execute(
@@ -172,7 +172,7 @@ def notification_dead_letter(trade_id: str, reason: str = "max_retries_exceeded"
         from sqlalchemy.orm import Session
         from app.external.postgres.models import Trade
 
-        sync_url = settings.DATABASE_URL.replace("+asyncpg", "+psycopg2")
+        sync_url = settings.sync_database_url
         engine = create_engine(sync_url)
         with Session(engine) as session:
             session.execute(
