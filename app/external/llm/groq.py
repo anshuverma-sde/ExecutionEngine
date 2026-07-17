@@ -64,15 +64,20 @@ class GroqProvider(BaseLLMProvider):
         ]
         turn_count = 0
 
+        tool_results_pending = False  # True after any tool result is added
+
         while turn_count < MAX_TURNS:
             turn_count += 1
             logger.debug("Groq agentic turn %d", turn_count)
+
+            # After we have tool results, force the model to produce a text answer
+            effective_tool_choice = "none" if tool_results_pending else "auto"
 
             response = await self._client.chat.completions.create(
                 model=self._model,
                 messages=messages,
                 tools=tools,
-                tool_choice="auto",
+                tool_choice=effective_tool_choice,
                 max_tokens=MAX_TOKENS,
                 temperature=TEMPERATURE,
             )
@@ -80,11 +85,11 @@ class GroqProvider(BaseLLMProvider):
             choice = response.choices[0]
             msg = choice.message
 
-            # Append assistant message to history
-            messages.append({
-                "role": "assistant",
-                "content": msg.content or "",
-                "tool_calls": [
+            # Build assistant message — content must be None (not "") when
+            # tool_calls are present; Groq rejects empty-string content here.
+            assistant_msg: dict = {"role": "assistant"}
+            if msg.tool_calls:
+                assistant_msg["tool_calls"] = [
                     {
                         "id": tc.id,
                         "type": "function",
@@ -93,9 +98,14 @@ class GroqProvider(BaseLLMProvider):
                             "arguments": tc.function.arguments,
                         },
                     }
-                    for tc in (msg.tool_calls or [])
-                ] or None,
-            })
+                    for tc in msg.tool_calls
+                ]
+                if msg.content:
+                    assistant_msg["content"] = msg.content
+            else:
+                assistant_msg["content"] = msg.content or ""
+
+            messages.append(assistant_msg)
 
             if not msg.tool_calls:
                 logger.info("Groq agentic loop done | turns=%d", turn_count)
@@ -114,6 +124,8 @@ class GroqProvider(BaseLLMProvider):
                     logger.error("Tool %s failed: %s", tc.function.name, exc)
                     content = json.dumps({"error": str(exc)})
                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
+
+            tool_results_pending = True  # next turn must produce a text answer
 
         logger.warning("Groq: MAX_TURNS=%d reached", MAX_TURNS)
         for msg in reversed(messages):
