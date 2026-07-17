@@ -168,7 +168,7 @@ class DhanFeedConsumer:
             if self._last_tick_time == 0:
                 continue  # no tick received yet (startup)
 
-            silence_s = asyncio.get_event_loop().time() - self._last_tick_time
+            silence_s = asyncio.get_running_loop().time() - self._last_tick_time
 
             if silence_s >= WATCHDOG_RECONNECT_S:
                 logger.error(
