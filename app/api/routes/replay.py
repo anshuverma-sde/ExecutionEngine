@@ -8,7 +8,7 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Body, Query, Request
 from fastapi.responses import JSONResponse
 
 from app.features.ingestion.pipeline import ingest_tick
@@ -19,30 +19,93 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["debug"])
 
 
-@router.post("/debug/replay")
+_REPLAY_EXAMPLE = (
+    '{"security_id": "13", "ltp": 22000.0, "ts": "2026-07-10T09:30:00Z"}\n'
+    '{"security_id": "13", "ltp": 22000.5, "ts": "2026-07-10T09:30:01Z"}\n'
+    '{"security_id": "13", "ltp": 23210.0, "ts": "2026-07-10T09:31:05Z"}'
+)
+
+
+@router.post(
+    "/debug/replay",
+    summary="Replay a NDJSON tick file through the live pipeline",
+    response_description="Count of processed ticks, signals fired, errors, and latency stats",
+)
 async def replay(
     request: Request,
     reset_window: bool = Query(
         False,
-        description="Flush the Redis price window before processing (clean slate).",
+        description="Flush the Redis 60s price window before replay. Use this for a clean test run so the spike always fires.",
     ),
     reset_metrics: bool = Query(
         False,
-        description="Clear latency samples before processing.",
+        description="Clear p50/p95/p99 latency samples before replay for a clean benchmark reading.",
     ),
 ) -> JSONResponse:
     """
-    Replay a newline-delimited JSON tick file through the live ingestion pipeline.
+    Feed a **newline-delimited JSON (NDJSON)** tick file through the **exact same pipeline**
+    as the live DhanHQ WebSocket feed — same `ingest_tick()` function, same spike detector,
+    same trade simulation, same Celery notifications.
 
-    Each line must be:
-        {"security_id": "13", "ltp": 22450.5, "ts": "2026-07-10T09:31:04.221Z"}
+    **This is the endpoint the evaluators use to test your engine against unseen market data.**
 
-    The ticks are fed through ingest_tick() — identical to the live WebSocket path.
-    Spike detection, trade simulation, and Celery notifications all fire normally.
+    ---
 
-    Query params:
-    - **reset_window**: flush Redis price window before replay (recommended for clean test runs)
-    - **reset_metrics**: clear latency samples before replay
+    ### Request body
+
+    `Content-Type: application/x-ndjson` — one JSON object per line:
+
+    ```
+    {"security_id": "13", "ltp": 22000.0, "ts": "2026-07-10T09:30:00Z"}
+    {"security_id": "13", "ltp": 22000.5, "ts": "2026-07-10T09:30:01Z"}
+    {"security_id": "13", "ltp": 23210.0, "ts": "2026-07-10T09:31:05Z"}
+    ```
+
+    | Field | Type | Description |
+    |---|---|---|
+    | `security_id` | string | Instrument ID — must be `"13"` (NIFTY 50) |
+    | `ltp` | float | Last traded price |
+    | `ts` | ISO 8601 string | Tick timestamp (UTC) |
+
+    ---
+
+    ### What happens per tick
+
+    1. Price appended to Redis 60-second rolling window
+    2. Spike detector compares current price vs price 60s ago
+    3. If move ≥ +5% → **LONG** signal → buy ATM Call (CE)
+    4. If move ≤ −5% → **SHORT** signal → buy ATM Put (PE)
+    5. Trade persisted to PostgreSQL
+    6. Celery notification task enqueued → webhook POST
+
+    ---
+
+    ### Quick test (curl)
+
+    ```bash
+    curl -X POST "http://localhost:8000/debug/replay?reset_window=true&reset_metrics=true" \\
+      -H "Content-Type: application/x-ndjson" \\
+      --data-binary @tests/fixtures/sample_replay.ndjson
+    ```
+
+    ---
+
+    ### Response
+
+    ```json
+    {
+      "processed": 120,
+      "signals": 1,
+      "errors": 0,
+      "latency_stats": {
+        "p50_ms": 1.79,
+        "p95_ms": 2.79,
+        "p99_ms": 4.33,
+        "max_ms": 7.29,
+        "sla_met": true
+      }
+    }
+    ```
     """
     if reset_metrics:
         latency_collector.reset()
