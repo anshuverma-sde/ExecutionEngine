@@ -65,13 +65,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     consumer_task = None
     if settings.DHAN_CLIENT_ID and settings.DHAN_ACCESS_TOKEN:
         try:
-            from app.external.dhanhq.consumer import DhanFeedConsumer
+            from app.external.feeds.factory import create_feed_consumer
             from app.features.ingestion.pipeline import ingest_tick
 
-            consumer = DhanFeedConsumer(
+            consumer = create_feed_consumer(
+                provider="dhanhq",
+                on_tick=ingest_tick,
                 client_id=settings.DHAN_CLIENT_ID,
                 access_token=settings.DHAN_ACCESS_TOKEN,
-                on_tick=ingest_tick,
             )
             app.state.consumer = consumer
             consumer_task = asyncio.create_task(consumer.start())

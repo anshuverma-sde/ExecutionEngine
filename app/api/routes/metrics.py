@@ -1,4 +1,5 @@
-"""GET /metrics/latency — tick-to-signal latency statistics.
+"""GET /metrics/latency  — tick-to-signal latency statistics.
+GET /metrics/queue     — Celery queue depth and circuit breaker status.
 GET /reconciliation/status — Celery Beat reconciliation health check.
 """
 import logging
@@ -39,6 +40,28 @@ async def reset_metrics() -> dict:
     """Clear all latency samples. Useful before a fresh benchmark run."""
     latency_collector.reset()
     return {"status": "reset", "measured_at": datetime.now(timezone.utc).isoformat()}
+
+
+@router.get("/metrics/queue")
+async def queue_metrics() -> dict:
+    """
+    Celery queue depth and webhook circuit breaker status.
+
+    **Queue depth**: number of tasks waiting to be picked up by a worker.
+    A growing `notifications` depth means workers can't keep up — scale workers or
+    fix the webhook endpoint.
+
+    **Circuit breaker**: shows whether the webhook circuit is CLOSED (normal),
+    OPEN (fail-fast, endpoint is down), or HALF_OPEN (probing for recovery).
+    """
+    from app.metrics.celery import get_queue_depths
+    from app.external.webhook.client import webhook_circuit_status
+
+    return {
+        "queues": get_queue_depths(),
+        "webhook_circuit_breaker": webhook_circuit_status(),
+        "measured_at": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @router.get("/reconciliation/status")
