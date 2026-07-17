@@ -1,18 +1,23 @@
 """
-Tick ingestion pipeline — THE shared entry point for all market data feeds.
+Tick ingestion pipeline — THE single entry point for all market data.
 
-Call `init_pipeline()` once during application startup to wire the
-dependencies, then call `ingest_tick()` for every incoming price tick.
+Both the live DhanHQ WebSocket consumer and the POST /debug/replay endpoint
+call ingest_tick(). There is no separate code path.
+
+Call init_pipeline() once during application startup, then call ingest_tick()
+for every incoming price tick.
 """
+import asyncio
 import logging
-from collections.abc import Callable, Awaitable
-from typing import Any
+import time
+from datetime import datetime
+from typing import Any, Callable, Awaitable
 
-from app.features.ingestion.schemas import Tick
+from app.metrics.latency import latency_collector
 
 logger = logging.getLogger(__name__)
 
-# Module-level pipeline dependencies (set by init_pipeline)
+# Module-level dependencies — injected at startup via init_pipeline()
 _price_window: Any | None = None
 _spike_detector: Any | None = None
 _handle_signal: Callable[..., Awaitable[None]] | None = None
@@ -25,7 +30,7 @@ def init_pipeline(
     handle_signal: Callable[..., Awaitable[None]],
     session_factory: Any,
 ) -> None:
-    """Wire up the pipeline dependencies. Must be called before ingest_tick."""
+    """Wire up pipeline dependencies. Must be called before ingest_tick()."""
     global _price_window, _spike_detector, _handle_signal, _session_factory
     _price_window = price_window
     _spike_detector = spike_detector
@@ -34,14 +39,56 @@ def init_pipeline(
     logger.info("Ingestion pipeline initialised")
 
 
-async def ingest_tick(raw: dict) -> None:
+async def ingest_tick(security_id: str, ltp: float, ts: datetime):
     """
-    Entry point for a raw tick dict from any market data feed.
+    Process a single price tick through the full detection pipeline.
 
-    Steps:
-      1. Normalise raw dict → Tick dataclass
-      2. Push price into rolling PriceWindow
-      3. Run SpikeDetector.detect()
-      4. If signal, call handle_signal()
+    Latency measurement scope (TICKET-011):
+      t_start  → Redis window append
+               → Redis fetch P(t-60)
+               → Spike threshold computation
+      t_end    ← signal decision returned
+
+    NOT included in measurement: Postgres write, Celery enqueue.
+
+    Returns the Signal if one was emitted, else None.
     """
-    pass
+    if _price_window is None or _spike_detector is None:
+        logger.warning("Pipeline not initialised — dropping tick %s@%.2f", security_id, ltp)
+        return None
+
+    t_start = time.perf_counter()
+    signal = None
+
+    try:
+        # 1. Append to Redis rolling window (ZADD + ZREMRANGEBYSCORE pipeline)
+        await _price_window.append(security_id, ltp, ts)
+
+        # 2. Run spike detector (reads P(t-60) from Redis, computes return)
+        signal = await _spike_detector.detect(security_id, ltp, ts)
+
+    except Exception as exc:
+        logger.error(
+            "Pipeline error for tick %s@%.2f: %s", security_id, ltp, exc, exc_info=True
+        )
+        return None
+    finally:
+        # Always record latency — even on error paths
+        latency_ms = (time.perf_counter() - t_start) * 1000
+        latency_collector.record(latency_ms)
+
+    # 3. If a signal was detected, dispatch trade simulation in background.
+    #    asyncio.create_task() returns immediately — does NOT block the pipeline.
+    if signal and _handle_signal and _session_factory:
+        asyncio.create_task(_dispatch_signal(signal))
+
+    return signal
+
+
+async def _dispatch_signal(signal) -> None:
+    """Run handle_signal() in a background task so the pipeline is non-blocking."""
+    try:
+        async with _session_factory() as db:
+            await _handle_signal(signal, db)
+    except Exception as exc:
+        logger.error("Signal dispatch failed: %s", exc, exc_info=True)
