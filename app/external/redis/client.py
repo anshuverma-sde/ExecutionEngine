@@ -15,7 +15,7 @@ async def init_redis(redis_url: str) -> aioredis.Redis:
         redis_url,
         encoding="utf-8",
         decode_responses=True,
-        max_connections=20,
+        max_connections=100,  # supports ~10x tick rate before pool exhaustion
     )
     # Verify connectivity
     await _redis_client.ping()

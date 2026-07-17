@@ -86,7 +86,7 @@ def _format_notification_message(trade) -> str:
 @celery_app.task(
     name="app.features.notifications.tasks.send_trade_notification",
     bind=True,
-    max_retries=5,
+    max_retries=settings.NOTIFICATION_MAX_RETRIES,
     acks_late=True,
     queue="notifications",
 )
@@ -160,7 +160,7 @@ def send_trade_notification(self, trade_id: str) -> dict:
             return {"status": "dead_letter", "trade_id": trade_id}
 
         _increment_retry_count_sync(trade_id)
-        countdown = 30 * (2 ** attempt)   # 30s, 60s, 120s, 240s, 480s
+        countdown = settings.NOTIFICATION_BACKOFF_BASE_SECONDS * (2 ** attempt)
 
         logger.warning(
             "Notification failed for %s (attempt %d/%d): %s — retrying in %ds",

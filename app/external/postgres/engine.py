@@ -31,8 +31,8 @@ async def init_engine(database_url: str) -> AsyncEngine:
         database_url,
         echo=False,
         pool_pre_ping=True,
-        pool_size=10,
-        max_overflow=20,
+        pool_size=20,      # supports ~10x concurrent async requests
+        max_overflow=40,   # burst headroom
     )
     AsyncSessionLocal = async_sessionmaker(
         bind=_engine,

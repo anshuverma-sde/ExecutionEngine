@@ -31,6 +31,11 @@ class PriceWindow:
     def __init__(self, redis_client: aioredis.Redis) -> None:
         self._redis = redis_client
 
+    @property
+    def redis_client(self) -> aioredis.Redis:
+        """Public accessor for the underlying Redis client (e.g. for CooldownManager)."""
+        return self._redis
+
     def _key(self, security_id: str) -> str:
         return f"{KEY_PREFIX}{security_id}"
 
