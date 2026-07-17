@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["trading"])
 
 
-@router.get("", response_model=TradeListResponse)
+@router.get("", response_model=TradeListResponse, summary="List all simulated trades (paginated, newest first)")
 async def list_trades(
     page: int = Query(1, ge=1, description="Page number (1-based)"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
@@ -30,7 +30,7 @@ async def list_trades(
     )
 
 
-@router.get("/{trade_id}", response_model=TradeResponse)
+@router.get("/{trade_id}", response_model=TradeResponse, summary="Get a single trade by UUID")
 async def get_trade(
     trade_id: str,
     db: AsyncSession = Depends(get_db),
