@@ -30,9 +30,10 @@ class Settings(BaseSettings):
     LANGCHAIN_BACKEND: str = "groq"
 
     # Groq (free tier) — https://console.groq.com
-    # Best for tool use (2026): groq/compound, openai/gpt-oss-120b
+    # Best for tool use (2026): compound-beta, openai/gpt-oss-120b, qwen/qwen3.6-27b
+    # Note: llama-3.3-70b-versatile deprecated June 17, 2026
     GROQ_API_KEY: str = ""
-    GROQ_MODEL: str = "groq/compound"
+    GROQ_MODEL: str = "compound-beta"
 
     # OpenAI — https://platform.openai.com
     # Latest flagship (2026): gpt-5.6 | cost-balanced: gpt-5.6-terra
