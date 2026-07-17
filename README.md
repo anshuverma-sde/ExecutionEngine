@@ -608,8 +608,8 @@ curl http://localhost:8000/trades
 ```bash
 # 1. Start the mock server (Option B above)
 
-# 2. Run the replay with window reset so a spike fires
-curl -X POST "http://localhost:8000/debug/replay?reset_window=true" \
+# 2. Run the replay — resets price window AND metrics for a clean run
+curl -X POST "http://localhost:8000/debug/replay?reset_window=true&reset_metrics=true" \
   -H "Content-Type: application/x-ndjson" \
   --data-binary @tests/fixtures/sample_replay.ndjson
 
