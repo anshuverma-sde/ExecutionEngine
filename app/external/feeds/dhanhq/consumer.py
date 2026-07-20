@@ -124,7 +124,6 @@ class DhanFeedConsumer(FeedConsumer):
         await feed.connect()
 
         self.state = "connected"
-        self._reconnect_delay = RECONNECT_BASE_S
         logger.info("DhanHQ feed connected — subscribed to NIFTY 50 LTP (security_id=%s)", SECURITY_ID)
 
         # dhanhq v2 uses a polling model — call get_instrument_data() in a loop
