@@ -10,8 +10,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Install system deps needed at runtime (curl for healthcheck, libpq for psycopg)
+# Install system deps needed at runtime
+# ca-certificates: required for DhanHQ WebSocket SSL verification
+# curl: healthcheck
+# libpq5: psycopg2 runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
     curl \
     libpq5 \
     && rm -rf /var/lib/apt/lists/*
