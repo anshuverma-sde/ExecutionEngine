@@ -145,6 +145,7 @@ services:
       celery -A app.external.celery.app beat
       --loglevel=info
       --pidfile=/tmp/celerybeat.pid
+      --schedule=/tmp/celerybeat-schedule
     env_file: .env
     environment:
       DB_HOST: postgres
